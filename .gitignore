@@ -1,0 +1,192 @@
+# ==============================================================================
+# Version Control Exclusions
+# Enforces zero-trust hygiene: secrets, local state, build artifacts, and
+# machine-specific files are prevented from entering the public repository.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Secrets and credential material
+# No credential ever reaches version control. Environment files and keys are
+# injected at runtime through environment variables and Kubernetes Secrets.
+# ------------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+secrets.*
+*.secret
+*.secrets
+credentials
+credentials.*
+
+# Private keys, certificates, and keystores
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.pkcs12
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.asc
+*.gpg
+
+# Cloud provider and cluster access artifacts
+.aws/
+.kube/config
+kubeconfig
+*.kubeconfig
+*-kubeconfig.yaml
+
+# ------------------------------------------------------------------------------
+# Local knowledge base and private support documentation
+# Internal operator context is excluded to prevent leakage of environment
+# specific detail into the public repository.
+# ------------------------------------------------------------------------------
+claude.md
+.mds/
+
+# ------------------------------------------------------------------------------
+# Terraform
+# State files contain plaintext resource attributes and potential secrets and
+# are never versioned. The dependency lock file is intentionally tracked to
+# guarantee deterministic, reproducible plans.
+# ------------------------------------------------------------------------------
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+!.terraform.lock.hcl
+
+# ------------------------------------------------------------------------------
+# Python (FastAPI backend)
+# Interpreter caches, virtual environments, and build output are reproducible
+# from source and are excluded to keep the repository lean.
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Test, type-check, and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ------------------------------------------------------------------------------
+# Node.js (frontend build tooling)
+# Dependency trees and build output are regenerated deterministically from
+# lockfiles and are not versioned.
+# ------------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.eslintcache
+.next/
+out/
+.nuxt/
+.turbo/
+.parcel-cache/
+.vite/
+coverage/
+
+# ------------------------------------------------------------------------------
+# Docker and Compose
+# Local override files carry developer-specific and potentially sensitive values.
+# ------------------------------------------------------------------------------
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# ------------------------------------------------------------------------------
+# Observability and local data volumes
+# Prometheus and Grafana runtime data are stateful and environment specific and
+# are not treated as source.
+# ------------------------------------------------------------------------------
+.data/
+prometheus-data/
+grafana-data/
+
+# ------------------------------------------------------------------------------
+# Logs and runtime artifacts
+# ------------------------------------------------------------------------------
+*.log
+logs/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ------------------------------------------------------------------------------
+# Tooling local overrides
+# Machine-specific local settings are not shared across environments.
+# ------------------------------------------------------------------------------
+.claude/settings.local.json
+
+# ------------------------------------------------------------------------------
+# Editor and operating system artifacts
+# Machine-specific metadata carries no cross-environment value.
+# ------------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/

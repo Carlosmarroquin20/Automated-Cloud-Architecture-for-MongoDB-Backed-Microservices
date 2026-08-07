@@ -1,0 +1,28 @@
+# ==============================================================================
+# Line-ending and diff normalization
+# Enforces LF in the repository across platforms to prevent CRLF/LF churn and to
+# keep shell scripts and container builds portable and executable on Linux.
+# ==============================================================================
+
+# Normalize all detected text files to LF in the repository and working tree
+* text=auto eol=lf
+
+# Shell scripts must retain LF to remain executable inside Linux containers
+*.sh text eol=lf
+
+# Windows-native scripts must retain CRLF to execute correctly on the host
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets are excluded from text normalization and line-based diffing
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
