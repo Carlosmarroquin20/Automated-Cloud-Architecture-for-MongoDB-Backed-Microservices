@@ -18,6 +18,12 @@ def _validate_identifier(item_id: str) -> None:
         raise InvalidObjectIdError(f"'{item_id}' is not a valid identifier")
 
 
+def _matches(document: dict[str, Any], tag: str | None, query: str | None) -> bool:
+    if tag is not None and tag not in document.get("tags", []):
+        return False
+    return query is None or query.lower() in str(document.get("name", "")).lower()
+
+
 class FakeItemRepository:
     def __init__(self) -> None:
         self._store: dict[str, dict[str, Any]] = {}
@@ -35,9 +41,19 @@ class FakeItemRepository:
         self._store[identifier] = document
         return document
 
-    async def list(self, limit: int, skip: int) -> list[dict[str, Any]]:
-        ordered = sorted(self._store.values(), key=lambda doc: doc["created_at"], reverse=True)
-        return ordered[skip : skip + limit]
+    async def list(
+        self,
+        limit: int,
+        skip: int,
+        tag: str | None = None,
+        query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        matching = [doc for doc in self._store.values() if _matches(doc, tag, query)]
+        matching.sort(key=lambda doc: doc["created_at"], reverse=True)
+        return matching[skip : skip + limit]
+
+    async def count(self, tag: str | None = None, query: str | None = None) -> int:
+        return sum(1 for doc in self._store.values() if _matches(doc, tag, query))
 
     async def get(self, item_id: str) -> dict[str, Any] | None:
         _validate_identifier(item_id)

@@ -5,3 +5,4 @@ uvicorn[standard]>=0.29,<1.0
 pydantic>=2.7,<3.0
 pydantic-settings>=2.2,<3.0
 pymongo>=4.9,<5.0
+prometheus-client>=0.20,<1.0

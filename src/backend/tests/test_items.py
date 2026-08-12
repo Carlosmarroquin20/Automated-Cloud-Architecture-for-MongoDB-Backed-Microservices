@@ -62,3 +62,24 @@ def test_missing_required_field_fails_validation(client: TestClient) -> None:
 def test_unknown_field_is_forbidden(client: TestClient) -> None:
     response = client.post("/api/v1/items", json={"name": "X", "unexpected": True})
     assert response.status_code == 422
+
+
+def test_list_filters_by_tag(client: TestClient) -> None:
+    client.post("/api/v1/items", json={"name": "Alpha", "tags": ["x"]})
+    client.post("/api/v1/items", json={"name": "Beta", "tags": ["y"]})
+    response = client.get("/api/v1/items", params={"tag": "x"})
+    assert response.status_code == 200
+    assert {item["name"] for item in response.json()} == {"Alpha"}
+
+
+def test_list_searches_by_name(client: TestClient) -> None:
+    client.post("/api/v1/items", json={"name": "Alpha"})
+    client.post("/api/v1/items", json={"name": "Beta"})
+    response = client.get("/api/v1/items", params={"q": "alph"})
+    assert [item["name"] for item in response.json()] == ["Alpha"]
+
+
+def test_list_publishes_total_count_header(client: TestClient) -> None:
+    client.post("/api/v1/items", json={"name": "Only"})
+    response = client.get("/api/v1/items")
+    assert response.headers["X-Total-Count"] == "1"

@@ -23,7 +23,18 @@ class ItemBase(BaseModel):
 
 
 class ItemCreate(ItemBase):
-    pass
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "name": "Fibre spool",
+                "description": "500 m reel",
+                "quantity": 12,
+                "tags": ["network", "consumable"],
+            }
+        },
+    )
 
 
 class ItemUpdate(BaseModel):

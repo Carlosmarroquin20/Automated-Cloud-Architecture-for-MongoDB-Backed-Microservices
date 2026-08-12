@@ -7,6 +7,7 @@ in-memory implementation without a live database.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +39,17 @@ def _serialize(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def _build_filter(tag: str | None, query: str | None) -> dict[str, Any]:
+    conditions: dict[str, Any] = {}
+    if tag:
+        conditions["tags"] = tag
+    if query:
+        # Case-insensitive substring match. The input is escaped so it is treated
+        # as a literal value rather than an attacker-controlled expression.
+        conditions["name"] = {"$regex": re.escape(query), "$options": "i"}
+    return conditions
+
+
 class ItemRepository:
     def __init__(self, database: AsyncDatabase[dict[str, Any]]) -> None:
         self._collection: AsyncCollection[dict[str, Any]] = database[COLLECTION_NAME]
@@ -56,9 +68,23 @@ class ItemRepository:
         document["_id"] = result.inserted_id
         return _serialize(document)
 
-    async def list(self, limit: int, skip: int) -> list[dict[str, Any]]:
-        cursor = self._collection.find().sort("created_at", -1).skip(skip).limit(limit)
+    async def list(
+        self,
+        limit: int,
+        skip: int,
+        tag: str | None = None,
+        query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        cursor = (
+            self._collection.find(_build_filter(tag, query))
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
         return [_serialize(document) async for document in cursor]
+
+    async def count(self, tag: str | None = None, query: str | None = None) -> int:
+        return await self._collection.count_documents(_build_filter(tag, query))
 
     async def get(self, item_id: str) -> dict[str, Any] | None:
         document = await self._collection.find_one({"_id": _to_object_id(item_id)})
