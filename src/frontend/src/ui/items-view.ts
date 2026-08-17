@@ -2,7 +2,15 @@ import type { Item, ItemCreate } from "../types/item";
 import { ApiError } from "../api/errors";
 import { createItem, deleteItem, listItems, updateItem } from "../api/items";
 import { el } from "./dom";
-import { ICON_BOX, ICON_MINUS, ICON_PLUS, ICON_TRASH, icon } from "./icons";
+import {
+  ICON_BOX,
+  ICON_CHEVRON_LEFT,
+  ICON_CHEVRON_RIGHT,
+  ICON_MINUS,
+  ICON_PLUS,
+  ICON_TRASH,
+  icon,
+} from "./icons";
 import { parseTags } from "./tags";
 
 type StatusKind = "error" | "info" | "none";
@@ -10,6 +18,7 @@ type StatusKind = "error" | "info" | "none";
 interface FormApi {
   element: HTMLFormElement;
   reset: () => void;
+  setBusy: (busy: boolean) => void;
 }
 
 interface Field {
@@ -17,36 +26,107 @@ interface Field {
   input: HTMLInputElement;
 }
 
+const PAGE_SIZE = 8;
+const SEARCH_DEBOUNCE_MS = 250;
+
 export function mountItemsView(root: HTMLElement): void {
   const status = el("p", { class: "status", role: "status", "aria-live": "polite" });
-  const listContainer = el("div", { class: "item-list" });
+  const listContainer = el("div", { class: "item-list", "aria-busy": "false" });
   const statsContainer = el("div", { class: "stats" });
   const form = buildForm(onCreate);
+
+  const searchInput = el("input", {
+    class: "search",
+    type: "search",
+    placeholder: "Search by name",
+    "aria-label": "Search items by name",
+  });
+  const spinner = el("span", { class: "spinner", "aria-hidden": "true" });
+
+  const rangeLabel = el("span", { class: "pagination__range" });
+  const prevButton = iconButton(ICON_CHEVRON_LEFT, "Previous page", "btn btn--icon");
+  const nextButton = iconButton(ICON_CHEVRON_RIGHT, "Next page", "btn btn--icon");
+  const pagination = el("div", { class: "pagination" }, [
+    rangeLabel,
+    el("div", { class: "pagination__controls" }, [prevButton, nextButton]),
+  ]);
+
+  const itemsPanel = el("section", { class: "panel" }, [
+    el("div", { class: "panel__header" }, [
+      panelTitle("Items", ICON_BOX),
+      el("div", { class: "toolbar" }, [searchInput, spinner]),
+    ]),
+    status,
+    listContainer,
+    pagination,
+  ]);
 
   root.append(
     statsContainer,
     el("section", { class: "panel" }, [panelTitle("Create item", ICON_PLUS), form.element]),
-    el("section", { class: "panel" }, [panelTitle("Items", ICON_BOX), status, listContainer]),
+    itemsPanel,
   );
+
+  let query = "";
+  let skip = 0;
+  let total = 0;
+  let debounceTimer = 0;
+
+  searchInput.addEventListener("input", () => {
+    query = searchInput.value.trim();
+    skip = 0;
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => {
+      void reload();
+    }, SEARCH_DEBOUNCE_MS);
+  });
+
+  prevButton.addEventListener("click", () => {
+    if (skip === 0) {
+      return;
+    }
+    skip = Math.max(0, skip - PAGE_SIZE);
+    void reload();
+  });
+  nextButton.addEventListener("click", () => {
+    if (skip + PAGE_SIZE >= total) {
+      return;
+    }
+    skip += PAGE_SIZE;
+    void reload();
+  });
 
   function setStatus(message: string, kind: StatusKind): void {
     status.textContent = message;
     status.className = kind === "none" ? "status" : `status status--${kind}`;
   }
 
-  function renderStats(items: Item[]): void {
+  function setLoading(busy: boolean): void {
+    listContainer.setAttribute("aria-busy", String(busy));
+    itemsPanel.classList.toggle("is-loading", busy);
+  }
+
+  function renderStats(items: Item[], totalCount: number): void {
     const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0);
     const distinctTags = new Set(items.flatMap((item) => item.tags)).size;
     statsContainer.replaceChildren(
-      statTile("Items", String(items.length)),
-      statTile("Total units", String(totalUnits)),
-      statTile("Distinct tags", String(distinctTags)),
+      statTile("Items", String(totalCount)),
+      statTile("Units (page)", String(totalUnits)),
+      statTile("Tags (page)", String(distinctTags)),
     );
+  }
+
+  function renderPagination(): void {
+    const from = total === 0 ? 0 : skip + 1;
+    const to = Math.min(skip + PAGE_SIZE, total);
+    rangeLabel.textContent = `${String(from)}–${String(to)} of ${String(total)}`;
+    prevButton.disabled = skip === 0;
+    nextButton.disabled = skip + PAGE_SIZE >= total;
   }
 
   function renderList(items: Item[]): void {
     if (items.length === 0) {
-      listContainer.replaceChildren(renderEmptyState());
+      listContainer.replaceChildren(renderEmptyState(query.length > 0));
       return;
     }
     listContainer.replaceChildren(...items.map(renderItem));
@@ -99,28 +179,43 @@ export function mountItemsView(root: HTMLElement): void {
   }
 
   async function reload(): Promise<void> {
+    setLoading(true);
     try {
-      const items = await listItems();
-      renderStats(items);
-      renderList(items);
-      if (items.length === 0) {
-        setStatus("No items yet. Create the first one above.", "info");
+      const page = await listItems({ limit: PAGE_SIZE, skip, q: query || undefined });
+      total = page.total;
+      renderStats(page.items, page.total);
+      renderList(page.items);
+      renderPagination();
+      if (page.total === 0) {
+        setStatus(
+          query ? "No items match your search." : "No items yet. Create the first one above.",
+          "info",
+        );
       } else {
         setStatus("", "none");
       }
     } catch (error) {
-      renderStats([]);
+      total = 0;
+      renderStats([], 0);
+      listContainer.replaceChildren();
+      renderPagination();
       setStatus(describeError(error), "error");
+    } finally {
+      setLoading(false);
     }
   }
 
   async function onCreate(data: ItemCreate): Promise<void> {
+    form.setBusy(true);
     try {
       await createItem(data);
       form.reset();
+      skip = 0;
       await reload();
     } catch (error) {
       setStatus(describeError(error), "error");
+    } finally {
+      form.setBusy(false);
     }
   }
 
@@ -165,10 +260,12 @@ function iconButton(iconPath: string, label: string, className: string): HTMLBut
   ]);
 }
 
-function renderEmptyState(): HTMLElement {
+function renderEmptyState(searching: boolean): HTMLElement {
   return el("div", { class: "empty" }, [
     el("div", { class: "empty__icon", "aria-hidden": "true" }, [icon(ICON_BOX, 40)]),
-    el("p", { class: "empty__text" }, ["No items yet — create one to see it here."]),
+    el("p", { class: "empty__text" }, [
+      searching ? "No items match your search." : "No items yet — create one to see it here.",
+    ]),
   ]);
 }
 
@@ -205,6 +302,9 @@ function buildForm(onSubmit: (data: ItemCreate) => Promise<void>): FormApi {
     element: form,
     reset: () => {
       form.reset();
+    },
+    setBusy: (busy: boolean) => {
+      submit.disabled = busy;
     },
   };
 }

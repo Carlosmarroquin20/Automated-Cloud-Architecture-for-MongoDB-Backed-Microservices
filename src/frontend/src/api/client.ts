@@ -6,10 +6,10 @@ interface RequestOptions {
   body?: unknown;
 }
 
-// Bounds every request to prevent a stalled connection from hanging the UI.
+// Bounds every request so a stalled connection cannot hang the UI.
 const REQUEST_TIMEOUT_MS = 10_000;
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function send(path: string, options: RequestOptions = {}): Promise<Response> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => {
     controller.abort();
@@ -22,21 +22,24 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       body: options.body === undefined ? null : JSON.stringify(options.body),
       signal: controller.signal,
     });
-
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null);
       throw parseApiError(response.status, payload);
     }
-    return payload as T;
+    return response;
   } catch (error) {
     throw normalizeError(error);
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await send(path, options);
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return (await response.json()) as T;
 }
 
 function normalizeError(error: unknown): ApiError {
@@ -49,4 +52,6 @@ function normalizeError(error: unknown): ApiError {
   return new ApiError(0, "network_error", "The service is unreachable");
 }
 
-export const httpClient = { request };
+// `send` returns the raw response so callers can read headers (for example the
+// total count); `request` layers JSON parsing on top for the common case.
+export const httpClient = { send, request };

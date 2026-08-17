@@ -7,6 +7,8 @@ export const ICON_PLUS = "M12 5v14M5 12h14";
 export const ICON_MINUS = "M5 12h14";
 export const ICON_TRASH = "M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6";
 export const ICON_BOX = "M21 8l-9-5-9 5 9 5 9-5M3 8v8l9 5 9-5V8M12 13v10";
+export const ICON_CHEVRON_LEFT = "M15 18l-6-6 6-6";
+export const ICON_CHEVRON_RIGHT = "M9 18l6-6-6-6";
 
 export function icon(pathData: string, size = 18): SVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
