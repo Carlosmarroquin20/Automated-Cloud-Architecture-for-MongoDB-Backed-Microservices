@@ -1,0 +1,18 @@
+# Build context exclusions: only application source and the dependency manifest
+# are required to build the image.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+tests/
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example
+*.md

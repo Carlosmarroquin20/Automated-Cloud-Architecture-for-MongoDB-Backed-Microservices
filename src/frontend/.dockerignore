@@ -1,0 +1,11 @@
+# Build context exclusions: dependencies and build output are regenerated inside
+# the image.
+node_modules/
+dist/
+.vite/
+coverage/
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example
