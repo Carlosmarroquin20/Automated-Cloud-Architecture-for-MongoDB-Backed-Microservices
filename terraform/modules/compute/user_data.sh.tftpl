@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+# Provisioning script executed by cloud-init on first boot. Template placeholders
+# (${mongodb_uri_parameter}, ${mongodb_db_name}) are rendered by Terraform; shell
+# variables ($TOKEN, $REGION, $MONGODB_URI) are expanded at runtime.
+
+# Install the container runtime and the Compose plugin.
+dnf update -y
+dnf install -y docker git
+systemctl enable --now docker
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Resolve the region and the credential-bearing connection string at boot. The
+# secret is read from SSM Parameter Store via the instance role and is never
+# baked into the image or the launch configuration. IMDSv2 tokens are required.
+TOKEN=$(curl -fsSX PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+REGION=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/placement/region")
+MONGODB_URI=$(aws ssm get-parameter --with-decryption --region "$REGION" --name "${mongodb_uri_parameter}" --query 'Parameter.Value' --output text)
+
+# Fetch the application source and launch the containerized stack.
+git clone https://github.com/Carlosmarroquin20/Automated-Cloud-Architecture-for-MongoDB-Backed-Microservices.git /opt/app
+cd /opt/app
+APP_ENV=production MONGODB_URI="$MONGODB_URI" MONGODB_DB_NAME="${mongodb_db_name}" docker compose up -d --build

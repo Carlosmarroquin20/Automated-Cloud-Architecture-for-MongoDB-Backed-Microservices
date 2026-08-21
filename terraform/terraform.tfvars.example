@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars (git-ignored) and adjust. Never commit real secrets.
+
+aws_region    = "us-east-1"
+environment   = "dev"
+instance_type = "t3.micro"
+
+# Restrict application access to a known network if desired; defaults to open for
+# a public UI.
+# app_ingress_cidr = "203.0.113.0/24"
+
+# Management uses SSM Session Manager by default. To also allow SSH, restrict the
+# source range explicitly.
+# enable_ssh       = true
+# ssh_ingress_cidr = "203.0.113.10/32"
+# key_name         = "my-key-pair"
+
+# The MongoDB connection string is credential-bearing. Provide it out-of-band so
+# it never lands in version control, for example:
+#   export TF_VAR_mongodb_uri="mongodb+srv://<user>:<password>@<cluster-host>/?retryWrites=true&w=majority"
+# mongodb_db_name = "microservice"
