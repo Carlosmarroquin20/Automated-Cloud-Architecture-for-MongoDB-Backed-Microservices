@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: microservice
+
+resources:
+  - ../../base
+  - mongo-service.yaml
+  - mongo-statefulset.yaml
+  - mongo-networkpolicy.yaml
+
+# Local development database credentials. The value is credential-free
+# (mongodb://mongo:27017), so it is safe to keep in the repository. The hash
+# suffix is disabled so the generated Secret name matches the backend reference.
+secretGenerator:
+  - name: mongodb-credentials
+    literals:
+      - mongodb-uri=mongodb://mongo:27017
+    options:
+      disableNameSuffixHash: true

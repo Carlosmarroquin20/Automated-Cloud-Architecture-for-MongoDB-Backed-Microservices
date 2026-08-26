@@ -42,6 +42,9 @@ kubeconfig
 *.kubeconfig
 *-kubeconfig.yaml
 
+# Rendered Kubernetes Secret manifests carrying real values are never committed
+k8s/**/secret.yaml
+
 # ------------------------------------------------------------------------------
 # Local knowledge base and private support documentation
 # Internal operator context is excluded to prevent leakage of environment

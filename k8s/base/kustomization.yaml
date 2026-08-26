@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# All resources are placed in a single namespace.
+namespace: microservice
+
+# Common metadata labels applied to every resource. includeSelectors is false so
+# these labels never leak into immutable Deployment selectors.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: mongodb-microservice
+      app.kubernetes.io/managed-by: kustomize
+
+# The mongodb-credentials Secret is deliberately not listed here; it is applied
+# out-of-band so no credential placeholder is ever rendered or committed.
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - backend-hpa.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - network-policies.yaml

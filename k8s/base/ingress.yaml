@@ -1,0 +1,24 @@
+# Single external entry point. All traffic reaches the frontend, which serves the
+# static assets and reverse-proxies /api and /health to the backend Service, so
+# the browser stays on one origin. The host and ingress class are environment
+# specific and are typically overridden per overlay.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: web
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: microservice.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
