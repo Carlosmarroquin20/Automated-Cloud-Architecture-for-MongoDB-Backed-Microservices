@@ -1,0 +1,51 @@
+# Automated dependency and toolchain updates.
+#
+# Every dependency surface is monitored so security patches are proposed
+# continuously rather than discovered during an incident. Minor and patch bumps
+# are grouped per ecosystem to keep review volume manageable while major bumps
+# remain individual for deliberate evaluation. Action pins are kept current here,
+# which is what makes major-version tag references safe in the workflows.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /src/backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /src/frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-npm:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /src/backend
+      - /src/frontend
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        update-types: [minor, patch]
+
+  - package-ecosystem: terraform
+    directory: /terraform
+    schedule:
+      interval: weekly
+    groups:
+      terraform-providers:
+        update-types: [minor, patch]
