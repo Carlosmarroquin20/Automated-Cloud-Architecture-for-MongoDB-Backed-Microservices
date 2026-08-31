@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings
 
-_REQUIRED = {"mongodb_uri": "mongodb://localhost:27017", "mongodb_db_name": "example"}
+# Typed as Any-valued so that unpacking into the settings-model constructor
+# type-checks against the keyword-only source parameters the pydantic-settings
+# plugin generates, without weakening the explicit per-field keyword arguments.
+_REQUIRED: dict[str, Any] = {
+    "mongodb_uri": "mongodb://localhost:27017",
+    "mongodb_db_name": "example",
+}
 
 
 def test_log_level_is_normalized_to_upper_case() -> None:
