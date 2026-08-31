@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose an enhancement or new capability.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The need or limitation this request addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The change you would like, and how it fits the existing architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: component
+    attributes:
+      label: Target component
+      options:
+        - Backend (FastAPI)
+        - Frontend (Vite/TypeScript)
+        - Containers / Compose
+        - Terraform
+        - Kubernetes / Kustomize
+        - CI/CD (GitHub Actions)
+        - Observability (Prometheus/Grafana)
+        - Cross-cutting / other
+    validations:
+      required: true

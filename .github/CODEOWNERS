@@ -1,0 +1,17 @@
+# Code owners are automatically requested for review on pull requests that touch
+# the matching paths. The maintainer owns the repository by default; the
+# security-sensitive surfaces are listed explicitly to make their ownership
+# unambiguous even as the default rule evolves.
+
+# Default owner for everything in the repository.
+*                       @Carlosmarroquin20
+
+# CI/CD, supply-chain, and dependency automation.
+/.github/               @Carlosmarroquin20
+
+# Infrastructure and orchestration.
+/terraform/             @Carlosmarroquin20
+/k8s/                   @Carlosmarroquin20
+
+# Security policy.
+/SECURITY.md            @Carlosmarroquin20

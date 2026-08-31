@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a defect so it can be reproduced and fixed.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. Do not include secrets, credentials, or private
+        hosts in the details below. For security vulnerabilities, use private
+        reporting instead (see SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the defect and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, ordered steps that reproduce the behavior.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Backend (FastAPI)
+        - Frontend (Vite/TypeScript)
+        - Containers / Compose
+        - Terraform
+        - Kubernetes / Kustomize
+        - CI/CD (GitHub Actions)
+        - Observability (Prometheus/Grafana)
+        - Other / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit or version, OS, and runtime versions where relevant.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Relevant logs. This is rendered as code, so no backticks are needed.
+      render: shell
+    validations:
+      required: false

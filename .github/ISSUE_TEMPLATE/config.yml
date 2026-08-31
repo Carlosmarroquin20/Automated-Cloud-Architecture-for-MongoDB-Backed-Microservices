@@ -1,0 +1,7 @@
+# Blank issues are disabled so every report arrives through a structured form,
+# and security reports are routed to private disclosure rather than public issues.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Carlosmarroquin20/Automated-Cloud-Architecture-for-MongoDB-Backed-Microservices/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue. See SECURITY.md.
