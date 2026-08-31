@@ -60,10 +60,10 @@ spec:
         - protocol: TCP
           port: 8000
 ---
-# Backend: reachable only from the frontend on port 8000, and permitted to reach
-# the external MongoDB Atlas cluster over its TLS port. Atlas addresses are not
-# fixed, so egress is scoped by destination port rather than by CIDR. Adding a
-# monitoring namespace selector here would permit Prometheus to scrape /metrics.
+# Backend: reachable from the frontend and from the monitoring namespace on port
+# 8000, and permitted to reach the external MongoDB Atlas cluster over its TLS
+# port. Atlas addresses are not fixed, so egress is scoped by destination port
+# rather than by CIDR.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -80,6 +80,15 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Prometheus, running in the monitoring namespace, scrapes /metrics on 8000.
+    # The source is scoped to that namespace by its immutable metadata label.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
           port: 8000

@@ -14,8 +14,21 @@ k8s/
 │   ├── frontend-deployment, frontend-service, ingress
 │   ├── pdb, network-policies
 │   └── kustomization.yaml
-└── overlays/
-    └── dev/              # Self-contained local stack with an in-cluster MongoDB
+├── overlays/
+│   └── dev/             # Self-contained local stack with an in-cluster MongoDB
+└── monitoring/          # In-cluster Prometheus + Grafana (own namespace)
+```
+
+## Monitoring
+
+An optional in-cluster monitoring plane (Prometheus + Grafana) lives under
+[`monitoring/`](monitoring) in its own `monitoring` namespace. Prometheus
+discovers the backend through its scrape annotations; the backend's ingress
+policy permits the monitoring namespace on port 8000. See
+[`monitoring/README.md`](monitoring/README.md).
+
+```bash
+kubectl apply -k k8s/monitoring
 ```
 
 ## Deploy
