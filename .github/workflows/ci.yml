@@ -345,6 +345,13 @@ jobs:
 
       - name: Simulate dev overlay apply
         run: |
+          # A server-side dry run does not persist the Namespace object, so the
+          # namespaced resources in the overlay would otherwise fail admission
+          # against a namespace that does not yet exist. The namespace is created
+          # for real first (an empty namespace in an ephemeral cluster schedules
+          # no workload and creates no provider resource); the rest of the overlay
+          # is then validated against it via server-side dry run.
+          kubectl create namespace microservice
           kubectl apply -k k8s/overlays/dev --dry-run=server
 
       - name: Record simulation summary
