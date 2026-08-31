@@ -1,0 +1,18 @@
+# Grafana datasource provisioning.
+#
+# The Prometheus datasource is declared with a fixed uid so provisioned
+# dashboards can reference it deterministically across environments. It is marked
+# non-editable so the source of truth remains this file rather than UI state.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

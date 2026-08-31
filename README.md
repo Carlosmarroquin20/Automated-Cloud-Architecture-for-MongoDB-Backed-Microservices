@@ -25,9 +25,8 @@ pillars of Operational Excellence, Security, Reliability, Performance Efficiency
 and Cost Optimization.
 
 Delivery is modular: each layer is implemented, verified, and reviewed
-independently. The application, containerization, infrastructure-as-code,
-orchestration, and CI/CD layers are complete; observability follows as the
-final layer.
+independently. All layers — application, containerization, infrastructure-as-code,
+orchestration, CI/CD, and observability — are complete.
 
 ## Architecture
 
@@ -72,7 +71,7 @@ connections, explicit timeouts, and bounded retries.
 | Infrastructure | Terraform (modular AWS, free-tier), SSM Session Manager |
 | Orchestration | Kubernetes, Kustomize, HPA, NetworkPolicies |
 | CI/CD | GitHub Actions (lint, test, scan, build, deploy simulation) |
-| Planned | Prometheus, Grafana |
+| Observability | Prometheus (scrape + alerts), Grafana (provisioned dashboard) |
 
 ## Repository Structure
 
@@ -84,6 +83,7 @@ connections, explicit timeouts, and bounded retries.
 ├── .github/              # CI/CD pipelines and dependency automation
 ├── terraform/            # Infrastructure as Code (modular AWS)
 ├── k8s/                  # Kubernetes manifests (Kustomize base + overlay)
+├── observability/        # Prometheus config + Grafana dashboards
 ├── docker-compose.yml    # Local multi-service orchestration
 ├── .gitattributes        # LF normalization for portable builds
 └── .gitignore            # Zero-trust exclusion policy
@@ -100,7 +100,7 @@ connections, explicit timeouts, and bounded retries.
 | 3 | Infrastructure as Code — Terraform modules | ✅ Complete |
 | 4 | Orchestration — Kubernetes probes, limits, policies | ✅ Complete |
 | 5 | CI/CD — GitHub Actions (lint, test, scan, deploy) | ✅ Complete |
-| 6 | Observability — Prometheus metrics, Grafana dashboards | ⬜ Planned |
+| 6 | Observability — Prometheus metrics, Grafana dashboards | ✅ Complete |
 
 ## Getting Started
 
@@ -159,6 +159,24 @@ GitHub Container Registry with build provenance and an SBOM. All scanners surfac
 findings in the repository Security tab. The pipeline runs entirely on
 GitHub-hosted runners within the free tier and requires no external secrets — the
 registry credential is the ephemeral `GITHUB_TOKEN`.
+
+## Observability
+
+The backend exports Prometheus metrics on `/metrics` using route templates as
+labels to bound cardinality. A local monitoring plane — Prometheus for
+collection and alerting, Grafana for visualization — is provisioned as code and
+started on demand behind a Compose profile.
+
+```bash
+docker compose --profile observability up --build
+```
+
+Grafana (http://localhost:3000) opens on a provisioned **Microservice Overview**
+dashboard covering request throughput, error ratio, latency percentiles
+(p50/p95/p99), in-flight saturation, and process resource usage. Prometheus
+(http://localhost:9090) evaluates availability and SLO alert rules. Both tools
+are open-source and run at no cost. See [`observability/`](observability/) for
+configuration and dashboards.
 
 ## Engineering Principles
 

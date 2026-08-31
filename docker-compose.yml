@@ -57,8 +57,61 @@ services:
     networks:
       - internal
 
+  # ----------------------------------------------------------------------------
+  # Observability plane.
+  # Gated behind the "observability" profile so the default stack stays lean;
+  # start it with `docker compose --profile observability up`. Prometheus scrapes
+  # the backend /metrics endpoint over the internal network and Grafana renders
+  # the provisioned dashboard.
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    # Anonymous access with the login form disabled avoids provisioning a
+    # credential for a strictly local, read-mostly dashboard. This posture is
+    # local-only and is not carried into any deployed environment.
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - internal
+
 volumes:
   mongo-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   internal:

@@ -1,0 +1,32 @@
+# Prometheus scrape and alerting configuration.
+#
+# The backend already exposes application metrics on /metrics using route
+# templates as labels, so scraping requires no exporter sidecar. Intervals are
+# kept modest to bound local resource usage while remaining responsive.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: mongodb-microservice
+
+# Alerting rules are evaluated in-process. An Alertmanager is intentionally not
+# provisioned locally; firing rules are observable in the Prometheus UI without
+# the additional service, keeping the local footprint minimal.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Application metrics. The target resolves over the Compose internal network to
+  # the backend service; the same job name is reused by the Kubernetes overlay.
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          service: backend
+
+  # Self-monitoring so the monitoring plane's own health is observable.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

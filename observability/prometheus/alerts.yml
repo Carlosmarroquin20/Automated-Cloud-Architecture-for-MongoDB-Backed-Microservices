@@ -1,0 +1,49 @@
+# Alerting rules for the microservice.
+#
+# Thresholds target symptoms visible to a client (availability, error ratio,
+# tail latency, saturation) rather than internal causes, so an alert maps to a
+# user-facing impact. Expressions use $__rate windows sized above the scrape
+# interval to avoid noise from a single missed sample.
+
+groups:
+  - name: microservice-availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backend target is not scrapeable
+          description: >-
+            Prometheus has failed to scrape the backend for over one minute,
+            indicating the service is down or unreachable.
+
+  - name: microservice-slo
+    rules:
+      - alert: HighErrorRate
+        # Ratio of 5xx responses over all responses across a five-minute window.
+        expr: >-
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_requests_total[5m])), 1)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated server error rate
+          description: More than 5% of requests returned a 5xx status over five minutes.
+
+      - alert: HighRequestLatencyP95
+        # 95th-percentile request latency derived from the native histogram.
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated p95 request latency
+          description: The 95th-percentile request latency exceeded 500ms over five minutes.

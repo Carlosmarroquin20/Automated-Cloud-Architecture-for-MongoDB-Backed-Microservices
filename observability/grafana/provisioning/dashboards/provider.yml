@@ -1,0 +1,18 @@
+# Grafana dashboard provisioning.
+#
+# Dashboards are loaded from disk so they are version-controlled artifacts rather
+# than mutable UI state. UI edits are permitted for local exploration but the
+# committed JSON remains authoritative on restart.
+
+apiVersion: 1
+
+providers:
+  - name: microservice-dashboards
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
