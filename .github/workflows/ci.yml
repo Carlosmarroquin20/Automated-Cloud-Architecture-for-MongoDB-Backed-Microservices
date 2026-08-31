@@ -169,6 +169,11 @@ jobs:
           kubectl kustomize k8s/overlays/dev \
             | kubeconform -strict -summary -ignore-missing-schemas -verbose
 
+      - name: Validate monitoring overlay
+        run: |
+          kubectl kustomize k8s/monitoring \
+            | kubeconform -strict -summary -ignore-missing-schemas -verbose
+
   # ---------------------------------------------------------------------------
   # Dockerfile static analysis.
   # Findings are reported as SARIF; the build fails only on error-severity rules
