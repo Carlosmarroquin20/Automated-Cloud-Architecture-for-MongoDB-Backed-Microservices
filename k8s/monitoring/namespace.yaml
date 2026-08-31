@@ -1,0 +1,8 @@
+# Dedicated namespace for the monitoring plane, isolated from the application
+# namespace so its access can be governed independently.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/name: monitoring

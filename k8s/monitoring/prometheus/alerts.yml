@@ -1,0 +1,46 @@
+# Alerting rules for the in-cluster deployment.
+#
+# These mirror observability/prometheus/alerts.yml; the expressions are
+# deployment-agnostic and rely on the `job="backend"` label the scrape config
+# derives from the workload name.
+
+groups:
+  - name: microservice-availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backend target is not scrapeable
+          description: >-
+            Prometheus has failed to scrape the backend for over one minute,
+            indicating the service is down or unreachable.
+
+  - name: microservice-slo
+    rules:
+      - alert: HighErrorRate
+        expr: >-
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_requests_total[5m])), 1)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated server error rate
+          description: More than 5% of requests returned a 5xx status over five minutes.
+
+      - alert: HighRequestLatencyP95
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated p95 request latency
+          description: The 95th-percentile request latency exceeded 500ms over five minutes.

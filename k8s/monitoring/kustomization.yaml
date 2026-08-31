@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The monitoring plane is deployed to its own namespace, isolating its access
+# and lifecycle from the application.
+namespace: monitoring
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: mongodb-microservice
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - prometheus/rbac.yaml
+  - prometheus/deployment.yaml
+  - prometheus/service.yaml
+
+# The Prometheus configuration and alert rules are generated from files so that
+# a change to either rolls the Deployment automatically via the content hash.
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus/prometheus.yml
+      - prometheus/alerts.yml
