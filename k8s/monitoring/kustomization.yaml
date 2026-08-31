@@ -16,11 +16,25 @@ resources:
   - prometheus/rbac.yaml
   - prometheus/deployment.yaml
   - prometheus/service.yaml
+  - grafana/deployment.yaml
+  - grafana/service.yaml
 
-# The Prometheus configuration and alert rules are generated from files so that
-# a change to either rolls the Deployment automatically via the content hash.
+# Configuration and dashboards are generated from files so that a change to any
+# of them rolls the owning Deployment automatically via the content hash. The
+# Grafana datasource, provider, and dashboard mirror observability/ for the
+# Compose stack; kustomize cannot reference files outside this root, so they are
+# carried here as the cluster-native source.
 configMapGenerator:
   - name: prometheus-config
     files:
       - prometheus/prometheus.yml
       - prometheus/alerts.yml
+  - name: grafana-datasources
+    files:
+      - grafana/datasource.yaml
+  - name: grafana-dashboard-provider
+    files:
+      - grafana/dashboard-provider.yaml
+  - name: grafana-dashboards
+    files:
+      - grafana/dashboards/microservice-overview.json
