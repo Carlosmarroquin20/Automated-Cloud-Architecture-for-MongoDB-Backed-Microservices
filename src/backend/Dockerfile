@@ -7,7 +7,7 @@
 # interpreter minor version matches the distroless runtime (Python 3.11) so the
 # prebuilt wheels are binary-compatible.
 # ------------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.11-slim-bookworm@sha256:c425d915a89a6dcd3183b1797ad9bd8878caff5a417f6371c8df93c8ea8b727f AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -21,7 +21,7 @@ RUN pip install --target=/deps -r requirements.txt
 # Distroless carries no shell, package manager, or extraneous binaries, which
 # minimizes the attack surface, and defaults to an unprivileged user.
 # ------------------------------------------------------------------------------
-FROM gcr.io/distroless/python3-debian12 AS runtime
+FROM gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f AS runtime
 
 WORKDIR /app
 COPY --from=builder /deps /deps
