@@ -191,6 +191,12 @@ configuration and dashboards.
 - **12-factor configuration** — strictly separated config, validated at startup.
 - **Zero cost** — every component fits provider free tiers and open-source tools.
 
+## Contributing and security
+
+Contribution setup, quality gates, and conventions are documented in
+[CONTRIBUTING.md](CONTRIBUTING.md). Security vulnerabilities should be reported
+privately as described in [SECURITY.md](SECURITY.md).
+
 ## License
 
 Released under the [MIT License](LICENSE).
