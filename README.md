@@ -59,6 +59,9 @@ same-origin requests and no backend host is embedded in the shipped assets. The
 service persists to a multi-node MongoDB Atlas cluster over TLS with pooled
 connections, explicit timeouts, and bounded retries.
 
+The reasoning behind these choices is recorded as
+[Architecture Decision Records](docs/adr/README.md).
+
 ## Technology
 
 | Concern | Technology |
@@ -85,6 +88,7 @@ connections, explicit timeouts, and bounded retries.
 ├── terraform/            # Infrastructure as Code (modular AWS)
 ├── k8s/                  # Kubernetes manifests (Kustomize base + overlay)
 ├── observability/        # Prometheus config + Grafana dashboards
+├── docs/adr/             # Architecture Decision Records
 ├── docker-compose.yml    # Local multi-service orchestration
 ├── .gitattributes        # LF normalization for portable builds
 └── .gitignore            # Zero-trust exclusion policy
