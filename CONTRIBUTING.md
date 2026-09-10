@@ -45,7 +45,9 @@ docker compose --profile observability up --build   # with Prometheus and Grafan
 ## Quality gates
 
 A change must pass the same gates the CI pipeline enforces. Run them locally
-before opening a pull request.
+before opening a pull request. With GNU make installed, `make check` runs every
+gate; `pre-commit install` wires a subset (formatting, secret scan, backend lint)
+to run automatically on each commit.
 
 Backend (`src/backend/`):
 
