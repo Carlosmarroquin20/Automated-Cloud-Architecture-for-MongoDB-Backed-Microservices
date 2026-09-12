@@ -7,7 +7,7 @@
 # interpreter minor version matches the distroless runtime (Python 3.11) so the
 # prebuilt wheels are binary-compatible.
 # ------------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm@sha256:c425d915a89a6dcd3183b1797ad9bd8878caff5a417f6371c8df93c8ea8b727f AS builder
+FROM python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
