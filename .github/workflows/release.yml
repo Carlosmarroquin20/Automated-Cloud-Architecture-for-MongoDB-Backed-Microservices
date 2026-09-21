@@ -95,3 +95,37 @@ jobs:
             echo
             echo "Digest: \`${{ steps.build.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release.
+  # Runs after the images publish so the tag also surfaces as a Release with
+  # generated notes and a pointer to the signed images. Elevated to
+  # contents: write only for this job.
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Resolve registry namespace
+        id: ns
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          generate_release_notes: true
+          body: |
+            ## Container images
+
+            Published to the GitHub Container Registry with SLSA build provenance
+            and an SBOM:
+
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-backend:${{ github.ref_name }}`
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-frontend:${{ github.ref_name }}`
+
+            Provenance is verifiable with `gh attestation verify` or `cosign`.
