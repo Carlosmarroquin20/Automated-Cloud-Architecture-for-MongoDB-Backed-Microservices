@@ -14,6 +14,10 @@ dependencies = [
     "pydantic-settings>=2.2,<3.0",
     "pymongo>=4.9,<5.0",
     "prometheus-client>=0.20,<1.0",
+    "opentelemetry-sdk>=1.27,<2.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0",
+    "opentelemetry-instrumentation-pymongo>=0.48b0,<1.0",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +68,12 @@ python_version = "3.10"
 strict = true
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# The OpenTelemetry instrumentation packages do not ship complete type
+# information; their imports are treated as untyped rather than failing strict.
+module = ["opentelemetry.instrumentation.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

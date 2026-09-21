@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.metrics import set_app_info
+from app.core.tracing import configure_tracing
 from app.db.mongodb import MongoDB
 from app.middleware.metrics import MetricsMiddleware
 from app.middleware.request_context import RequestContextMiddleware
@@ -111,6 +112,10 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(metrics.router)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    # Distributed tracing is attached last and is a no-op unless enabled through
+    # configuration, so the default build produces no spans.
+    configure_tracing(app, settings)
 
     return app
 

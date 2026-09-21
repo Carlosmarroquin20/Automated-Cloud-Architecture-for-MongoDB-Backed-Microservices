@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     # allowed origins are supplied explicitly per environment.
     cors_allow_origins: str = ""
 
+    # Distributed tracing. Disabled by default so the baseline footprint and
+    # dependency surface remain minimal; when enabled, spans are exported over
+    # OTLP to the configured collector endpoint (and optionally to the console).
+    otel_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = ""
+    otel_console_export: bool = False
+
     @field_validator("log_level")
     @classmethod
     def _normalize_log_level(cls, value: str) -> str:
