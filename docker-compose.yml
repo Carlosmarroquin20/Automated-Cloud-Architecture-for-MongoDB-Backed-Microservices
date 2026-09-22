@@ -28,6 +28,11 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}
       MONGODB_DB_NAME: ${MONGODB_DB_NAME:-microservice}
       MONGODB_PING_ON_STARTUP: "true"
+      # Tracing is off by default; set OTEL_ENABLED=true (for example in a local
+      # .env) to export spans to the Jaeger collector started by the
+      # observability profile. The endpoint is the full OTLP/HTTP traces path.
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
     ports:
       - "8000:8000"
     depends_on:
@@ -105,6 +110,19 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+    networks:
+      - internal
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.64.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    # Enable the OTLP receivers so the backend can export spans over OTLP; the
+    # trace store is in-memory, which suits local inspection.
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
     networks:
       - internal
 

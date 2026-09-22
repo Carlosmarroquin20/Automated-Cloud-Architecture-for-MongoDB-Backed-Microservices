@@ -183,6 +183,16 @@ dashboard covering request throughput, error ratio, latency percentiles
 are open-source and run at no cost. See [`observability/`](observability/) for
 configuration and dashboards.
 
+The three observability signals are complete: alongside metrics and structured
+logs, the backend is instrumented with OpenTelemetry for distributed traces
+(FastAPI and PyMongo). Tracing is opt-in (`OTEL_ENABLED`, off by default); when
+enabled with the observability profile, spans are exported to a bundled Jaeger
+instance (http://localhost:16686):
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up --build
+```
+
 ## Engineering Principles
 
 - **Zero-trust secrets** — no credentials, keys, or hosts in the repository;

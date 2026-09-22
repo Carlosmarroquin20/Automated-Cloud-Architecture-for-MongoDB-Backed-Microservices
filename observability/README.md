@@ -34,9 +34,26 @@ docker compose --profile observability up --build
 | Backend metrics | http://localhost:8000/metrics | Prometheus exposition |
 | Prometheus | http://localhost:9090 | Targets, graph, alerts |
 | Grafana | http://localhost:3000 | Anonymous access (local only) |
+| Jaeger | http://localhost:16686 | Trace UI (when tracing is enabled) |
 
 Grafana opens directly on the **Microservice Overview** dashboard. Generate
 traffic against the API (for example through the UI) to populate the panels.
+
+## Tracing
+
+The backend is instrumented with OpenTelemetry (FastAPI and PyMongo) but produces
+spans only when tracing is enabled, so the default footprint stays minimal. Enable
+it alongside the observability profile to export spans to the bundled Jaeger
+collector:
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up --build
+```
+
+Generate traffic, then open Jaeger at http://localhost:16686, pick the
+`mongodb-microservice` service, and inspect request traces (including the MongoDB
+spans). The exporter targets `http://jaeger:4318/v1/traces` by default; the Jaeger
+store is in-memory, suited to local inspection.
 
 ## Metrics
 
