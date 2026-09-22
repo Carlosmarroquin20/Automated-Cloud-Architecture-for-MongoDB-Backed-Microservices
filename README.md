@@ -62,6 +62,43 @@ connections, explicit timeouts, and bounded retries.
 The reasoning behind these choices is recorded as
 [Architecture Decision Records](docs/adr/README.md).
 
+### Delivery and runtime topology
+
+End to end, from a commit to an observed running system:
+
+```mermaid
+flowchart TB
+    dev(["Developer"]) -->|"push / tag"| gha
+
+    subgraph cicd ["CI/CD — GitHub Actions"]
+        gha["Quality gates<br/>lint · type-check · test · scan · deploy-sim"]
+        gha -->|on tag| img["Build multi-stage images"]
+        img --> ghcr[("GHCR<br/>signed images · SBOM · provenance")]
+    end
+
+    subgraph cluster ["Kubernetes (Kustomize)"]
+        ing["Ingress"] --> fe["Frontend<br/>nginx"]
+        fe -->|"same-origin /api, /health"| be["Backend<br/>FastAPI"]
+        be -->|"pooled, TLS, retries"| db[("MongoDB<br/>Atlas / dev StatefulSet")]
+
+        subgraph mon ["monitoring namespace"]
+            prom["Prometheus"]
+            graf["Grafana"] --> prom
+        end
+        prom -->|"scrape /metrics"| be
+        be -.->|"OTLP traces"| jae["Jaeger"]
+    end
+
+    user(["Client browser"]) -->|HTTPS| ing
+    ghcr -.->|pull| fe
+    ghcr -.->|pull| be
+```
+
+The application request path is the solid line client → ingress → frontend →
+backend → database; Prometheus scrapes the backend, Grafana visualizes it, and
+the backend emits OTLP traces to Jaeger (dashed, opt-in). Images are built,
+signed, and pulled from GHCR.
+
 ## Technology
 
 | Concern | Technology |
