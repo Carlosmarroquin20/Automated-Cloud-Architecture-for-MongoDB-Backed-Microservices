@@ -176,7 +176,7 @@ Every layer ships with automated verification.
 
 | Component | Gates |
 |-----------|-------|
-| Backend | `ruff check` · `mypy --strict` (27 modules) · `pytest` (35 tests) |
+| Backend | `ruff check` · `mypy --strict` (41 files) · `pytest` (37 tests) |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
 
 The frontend production bundle is approximately 6.6 kB gzipped (JavaScript and

@@ -26,6 +26,7 @@ looks the way it does, not merely *what* it contains.
 | 0014 | GitHub Actions pinning strategy | Superseded by SHA pinning |
 | 0015 | Deploy simulation strategy | Accepted |
 | 0016 | Observability stack and topology | Accepted |
+| 0017 | Distributed tracing | Accepted |
 
 ---
 
@@ -208,5 +209,21 @@ plane runs behind a Compose profile so the default stack stays lean. In-cluster,
 Prometheus discovers targets through pod annotations. Grafana uses anonymous
 access with the login form disabled in local and in-cluster contexts to avoid
 provisioning a credential; this posture is not intended for public exposure.
+
+**Status.** Accepted.
+
+## ADR-0017 — Distributed tracing
+
+**Context.** Metrics and structured logs are in place, but request-level causality
+across the service and its database is not observable. Adding tracing must not
+bloat the minimal default image or its attack surface (ADR-0004, ADR-0010).
+
+**Decision.** Instrument FastAPI and PyMongo with OpenTelemetry and export spans
+over OTLP (HTTP). Tracing is opt-in through `OTEL_ENABLED` (off by default), so
+the default build produces no spans and the dependency is inert unless enabled.
+
+**Consequences.** A modest dependency addition is accepted to complete the three
+observability signals; a bundled Jaeger instance in the Compose observability
+profile makes the traces inspectable locally.
 
 **Status.** Accepted.
