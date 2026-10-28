@@ -54,7 +54,7 @@ jobs:
 
       - name: Derive image metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-${{ matrix.component }}
           tags: |
@@ -78,11 +78,16 @@ jobs:
           sbom: true
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-${{ matrix.component }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+          # Artifact storage records exist only for organization-owned
+          # repositories and would require the artifact-metadata write
+          # permission; this repository is user-owned, so they are disabled
+          # rather than granting a permission that serves no purpose.
+          create-storage-record: false
 
       - name: Record release summary
         run: |
