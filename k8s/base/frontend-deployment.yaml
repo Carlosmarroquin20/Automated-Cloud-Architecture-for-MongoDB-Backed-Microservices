@@ -37,8 +37,11 @@ spec:
               cpu: 200m
               memory: 64Mi
           # Stock nginx binds port 80 and manages worker processes, so it is not
-          # forced non-root here; capabilities are dropped to only the bind
-          # privilege. A fully non-root posture would adopt an unprivileged nginx
+          # forced non-root here. All capabilities are dropped except the minimum
+          # the master process needs: binding port 80 (NET_BIND_SERVICE), handing
+          # its temp directories to the worker user (CHOWN), and switching workers
+          # to that user (SETUID, SETGID); without the last three the master exits
+          # at startup. A fully non-root posture would adopt an unprivileged nginx
           # image listening on a high port.
           securityContext:
             allowPrivilegeEscalation: false
@@ -47,6 +50,9 @@ spec:
                 - ALL
               add:
                 - NET_BIND_SERVICE
+                - CHOWN
+                - SETUID
+                - SETGID
           readinessProbe:
             httpGet:
               path: /

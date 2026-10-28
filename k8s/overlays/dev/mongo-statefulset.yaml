@@ -33,6 +33,9 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # mongosh is a Node.js process whose startup alone can exceed the
+          # default one-second probe timeout under the CPU limit, which would keep
+          # the pod unready indefinitely; the timeout is widened accordingly.
           readinessProbe:
             exec:
               command:
@@ -42,6 +45,7 @@ spec:
                 - db.adminCommand('ping').ok
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
           volumeMounts:
             - name: data
               mountPath: /data/db
