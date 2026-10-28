@@ -24,7 +24,7 @@ looks the way it does, not merely *what* it contains.
 | 0012 | CI/CD platform and pipeline topology | Accepted |
 | 0013 | Container registry and release model | Accepted |
 | 0014 | GitHub Actions pinning strategy | Superseded by SHA pinning |
-| 0015 | Deploy simulation strategy | Accepted |
+| 0015 | Deploy verification strategy | Accepted (amended) |
 | 0016 | Observability stack and topology | Accepted |
 | 0017 | Distributed tracing | Accepted |
 
@@ -153,7 +153,8 @@ pipeline at zero cost.
 
 **Decision.** GitHub Actions expressed as a directed acyclic graph: parallel
 quality gates (backend matrix, frontend, Terraform validate, Kustomize +
-kubeconform) fan out, then image build and scan, then a deploy simulation.
+kubeconform) fan out, then image build and scan, then an ephemeral deployment
+verified by an end-to-end smoke test.
 Security findings are emitted as SARIF to code scanning. The default token
 permission is `contents: read`, elevated per job; concurrency cancels superseded
 runs.
@@ -185,17 +186,26 @@ immutable commit SHAs, with the version retained as a trailing comment; Dependab
 continues to track and refresh the pins. The SHA pins the action's code, which a
 mutable tag cannot guarantee.
 
-## ADR-0015 — Deploy simulation strategy
+## ADR-0015 — Deploy verification strategy
 
-**Context.** A deployment gate should exercise real admission and schema
-validation while creating no cloud resources.
+**Context.** A deployment gate should prove that the manifests and images actually
+run together, not only that they pass admission, while creating no cloud
+resources.
 
-**Decision.** Stand up an ephemeral in-cluster Kubernetes (kind) on the CI runner
-and run a server-side dry run of the dev overlay. Because a server-side dry run
-does not persist the overlay's namespace, the namespace is created first; an empty
-namespace schedules no workload and creates no provider resource.
+**Decision.** Stand up an ephemeral Kubernetes cluster (kind) on the CI runner and
+load the images built in the same job. The dev overlay is first validated with a
+server-side dry run, then applied for real; every rollout must complete, and an
+end-to-end smoke test drives readiness and an item create/read/delete cycle
+through the frontend origin, exercising the reverse proxy, the backend, and the
+database together. On failure, pod state, events, and logs are captured as job
+annotations. The cluster exists only for the job, so no provider resource is
+created.
 
-**Status.** Accepted.
+**Status.** Accepted (amended 2026-10-28). The original decision stopped at the
+server-side dry run, with the namespace created first because a dry run does not
+persist it. The first real deployment surfaced two defects that admission alone
+could not detect: nginx exiting under its dropped capability set, and a database
+readiness probe exceeding its timeout.
 
 ## ADR-0016 — Observability stack and topology
 

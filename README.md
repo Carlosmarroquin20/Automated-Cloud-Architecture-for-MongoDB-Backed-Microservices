@@ -71,7 +71,7 @@ flowchart TB
     dev(["Developer"]) -->|"push / tag"| gha
 
     subgraph cicd ["CI/CD — GitHub Actions"]
-        gha["Quality gates<br/>lint · type-check · test · scan · deploy-sim"]
+        gha["Quality gates<br/>lint · type-check · test · scan · e2e deploy"]
         gha -->|on tag| img["Build multi-stage images"]
         img --> ghcr[("GHCR<br/>signed images · SBOM · provenance")]
     end
@@ -111,7 +111,7 @@ signed, and pulled from GHCR.
 | Containers | Multi-stage Docker (distroless backend, nginx frontend), Compose |
 | Infrastructure | Terraform (modular AWS, free-tier), SSM Session Manager |
 | Orchestration | Kubernetes, Kustomize, HPA, NetworkPolicies |
-| CI/CD | GitHub Actions (lint, test, scan, build, deploy simulation) |
+| CI/CD | GitHub Actions (lint, test, scan, build, ephemeral deploy + smoke test) |
 | Observability | Prometheus (scrape + alerts), Grafana (provisioned dashboard) |
 
 ## Repository Structure
@@ -194,7 +194,7 @@ followed by container build, vulnerability scanning, and a simulated deployment.
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy simulation | Server-side dry run against an ephemeral kind cluster |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster, rollouts awaited, end-to-end smoke test through the frontend |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface
