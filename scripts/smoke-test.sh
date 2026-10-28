@@ -54,4 +54,22 @@ code="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "${API}/${item_id}")"
 code="$(curl -sS -o /dev/null -w '%{http_code}' "${API}/${item_id}")"
 [ "${code}" = "404" ] || fail "deleted item still resolvable (HTTP ${code})"
 
+# Runs last because it deliberately exhausts this client's request budget. The
+# burst is concurrent so it exceeds the configured rate regardless of the
+# per-request latency of the path under test.
+echo "Exceeding the API rate limit"
+bodies="$(mktemp -d)"
+trap 'rm -rf "${bodies}"' EXIT
+# Each response body is kept so a throttled one is inspected directly; a request
+# issued after the burst would find the budget already refilled.
+statuses="$(seq 1 150 | xargs -P 30 -I{} \
+  curl -s -o "${bodies}/{}" -w '%{http_code} {}\n' "${API}?limit=1")"
+throttled="$(grep -c '^429 ' <<<"${statuses}" || true)"
+echo "  ${throttled} of 150 requests throttled"
+[ "${throttled}" -gt 0 ] || fail "no request was rate limited"
+
+sample="$(grep -m1 '^429 ' <<<"${statuses}" | cut -d' ' -f2)"
+jq -e '.error.code == "rate_limited"' "${bodies}/${sample}" >/dev/null \
+  || fail "throttled response lacks the error envelope: $(cat "${bodies}/${sample}")"
+
 echo "Smoke test passed"
