@@ -13,6 +13,13 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # The CodeQL subactions (init, autobuild, analyze, upload-sarif) must run
+      # at the same version; a partial bump fails analysis. They are updated
+      # together across all update types and listed first so they are not
+      # absorbed by the generic group.
+      codeql:
+        patterns:
+          - "github/codeql-action*"
       actions:
         update-types: [minor, patch]
 
