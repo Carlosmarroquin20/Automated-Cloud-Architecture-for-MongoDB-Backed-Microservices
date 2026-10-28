@@ -30,10 +30,19 @@ spec:
         runAsGroup: 101
         seccompProfile:
           type: RuntimeDefault
+      # The image stops nginx with SIGQUIT, a graceful shutdown that finishes
+      # in-flight requests; the grace period bounds that drain.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: frontend
           image: mongodb-microservice-frontend:latest
           imagePullPolicy: IfNotPresent
+          # Keeps serving while endpoint removal propagates to kube-proxy and the
+          # ingress controller, as on the backend.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           ports:
             - name: http
               containerPort: 8080

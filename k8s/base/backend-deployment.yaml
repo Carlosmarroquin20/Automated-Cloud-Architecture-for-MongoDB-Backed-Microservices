@@ -35,10 +35,23 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # Budget for an orderly stop: the preStop pause plus the application's
+      # bounded request drain (20s) fit within it, so SIGKILL is never the
+      # normal termination path.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: backend
           image: mongodb-microservice-backend:latest
           imagePullPolicy: IfNotPresent
+          # Endpoint removal and SIGTERM happen concurrently, and kube-proxy and
+          # ingress controllers observe the removal with a delay. The pause keeps
+          # the pod serving until routing has converged, so no request reaches a
+          # closed listener. The native sleep action is used because the
+          # distroless image has no shell to run an exec hook.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           ports:
             - name: http
               containerPort: 8000

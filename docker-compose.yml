@@ -23,6 +23,9 @@ services:
     build:
       context: ./src/backend
     restart: unless-stopped
+    # Exceeds the application's bounded request drain (20s) so Compose does not
+    # kill the process before its shutdown hooks complete; the default is 10s.
+    stop_grace_period: 30s
     environment:
       APP_ENV: ${APP_ENV:-development}
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}

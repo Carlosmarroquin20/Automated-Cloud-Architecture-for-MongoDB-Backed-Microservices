@@ -135,4 +135,7 @@ if __name__ == "__main__":
         host="0.0.0.0",  # noqa: S104
         port=runtime_settings.app_port,
         log_config=None,
+        # Mirrors the container entrypoint: in-flight requests drain for a bounded
+        # time on shutdown so the lifespan teardown is never skipped.
+        timeout_graceful_shutdown=20,
     )

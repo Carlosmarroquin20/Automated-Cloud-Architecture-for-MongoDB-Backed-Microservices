@@ -39,5 +39,8 @@ EXPOSE 8000
 USER nonroot
 
 # Binding to all interfaces is required for container ingress; external exposure
-# is governed by the orchestrator, not the process.
-ENTRYPOINT ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# is governed by the orchestrator, not the process. On SIGTERM, uvicorn stops
+# accepting connections and drains in-flight requests; the drain is bounded below
+# the orchestrator's termination grace period so the lifespan shutdown, which
+# closes the MongoDB client, always runs before a forced kill.
+ENTRYPOINT ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "20"]
