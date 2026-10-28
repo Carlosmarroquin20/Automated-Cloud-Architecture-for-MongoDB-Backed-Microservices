@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Lightweight static client for the MongoDB-backed microservice API.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

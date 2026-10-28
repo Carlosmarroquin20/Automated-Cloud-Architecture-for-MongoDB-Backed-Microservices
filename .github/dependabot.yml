@@ -54,6 +54,12 @@ updates:
     groups:
       base-images:
         update-types: [minor, patch]
+    ignore:
+      # The builder tracks the Node.js 22 LTS line declared in the frontend
+      # engines field. A move to the next LTS is a deliberate baseline change,
+      # so newer majors (including non-LTS odd releases) are not proposed.
+      - dependency-name: "node"
+        versions: [">=23"]
 
   - package-ecosystem: terraform
     directory: /terraform
