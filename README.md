@@ -60,7 +60,10 @@ service persists to a multi-node MongoDB Atlas cluster over TLS with pooled
 connections, explicit timeouts, and bounded retries.
 
 The reasoning behind these choices is recorded as
-[Architecture Decision Records](docs/adr/README.md).
+[Architecture Decision Records](docs/adr/README.md). The system is also described
+at the context, container, and component levels of the C4 model in
+[docs/architecture.md](docs/architecture.md), and the published API contract is
+versioned as [docs/api/openapi.json](docs/api/openapi.json).
 
 ### Delivery and runtime topology
 
@@ -125,7 +128,7 @@ signed, and pulled from GHCR.
 ├── terraform/            # Infrastructure as Code (modular AWS)
 ├── k8s/                  # Kubernetes manifests (Kustomize base + overlay)
 ├── observability/        # Prometheus config + Grafana dashboards
-├── docs/adr/             # Architecture Decision Records
+├── docs/                 # ADRs, C4 architecture, OpenAPI contract
 ├── docker-compose.yml    # Local multi-service orchestration
 ├── .gitattributes        # LF normalization for portable builds
 └── .gitignore            # Zero-trust exclusion policy
@@ -176,7 +179,7 @@ Every layer ships with automated verification.
 
 | Component | Gates |
 |-----------|-------|
-| Backend | `ruff check` · `mypy --strict` (41 files) · `pytest` (37 tests) |
+| Backend | `ruff check` · `mypy --strict` (42 files) · `pytest` (38 tests) · OpenAPI contract drift check |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
 
 The frontend production bundle is approximately 6.6 kB gzipped (JavaScript and

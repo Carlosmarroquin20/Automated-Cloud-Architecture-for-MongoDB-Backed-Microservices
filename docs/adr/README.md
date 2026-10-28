@@ -27,6 +27,10 @@ looks the way it does, not merely *what* it contains.
 | 0015 | Deploy verification strategy | Accepted (amended) |
 | 0016 | Observability stack and topology | Accepted |
 | 0017 | Distributed tracing | Accepted |
+| 0018 | Retry jitter and graceful termination | Accepted |
+| 0019 | Request rate limiting at the reverse proxy | Accepted |
+| 0020 | API contract as a versioned artifact | Accepted |
+| 0021 | Document data model | Accepted |
 
 ---
 
@@ -240,3 +244,86 @@ observability signals; a bundled Jaeger instance in the Compose observability
 profile makes the traces inspectable locally.
 
 **Status.** Accepted.
+
+## ADR-0018 — Retry jitter and graceful termination
+
+**Context.** Replicas restarted together, as in a rollout or after a node failure,
+retried the database on an identical exponential schedule and reached it as
+synchronized bursts. Separately, Kubernetes removes a terminating pod from its
+endpoints at the same moment it sends SIGTERM, while kube-proxy and ingress
+controllers observe the removal with a delay, so a pod that stops immediately
+can drop requests still being routed to it.
+
+**Decision.** Startup retries keep the capped exponential ceiling but sleep for a
+uniformly random duration up to it (full jitter). Each workload pauses in a
+`preStop` hook before shutdown so routing converges first; the backend uses the
+native `sleep` action because its distroless image has no shell. uvicorn drains
+in-flight requests for at most 20 seconds, inside a 30-second termination grace
+period, so the lifespan teardown that closes the MongoDB client always runs.
+nginx stops on SIGQUIT, its graceful mode, as declared by the image.
+
+**Consequences.** A forced kill is no longer the normal termination path. The
+retry schedule becomes non-deterministic, so tests pin the random draw.
+
+**Status.** Accepted (2026-10-28).
+
+## ADR-0019 — Request rate limiting at the reverse proxy
+
+**Context.** The API had no protection against a single client exhausting the
+backend. The usual place for that control is the ingress layer, but expressing it
+as controller-specific annotations ties it to one controller, and the widely used
+ingress-nginx controller has been retired upstream.
+
+**Decision.** Enforce a per-client limit (20 requests per second, burst of 40,
+rejected immediately) in the frontend nginx, the reverse proxy that already
+fronts every API call. The same control then applies under Compose, on the VM
+host, and on Kubernetes. Rejections return HTTP 429 with `Retry-After` and the
+backend's error envelope; health probes are exempt. The CI smoke test asserts
+that a concurrent burst is throttled.
+
+**Consequences.** Clients are keyed by connection address, so behind another
+proxy the key is that proxy hop and the limit caps aggregate load per hop rather
+than per end user. Per-user limits belong at the external edge (a gateway or
+WAF), which can see the original client address.
+
+**Status.** Accepted (2026-10-28).
+
+## ADR-0020 — API contract as a versioned artifact
+
+**Context.** FastAPI generates the OpenAPI document at runtime, and production
+disables its endpoint to reduce the exposed surface. Reviewers and client
+authors therefore had no stable, reviewable contract, and API changes were
+invisible in diffs.
+
+**Decision.** Commit the generated document as `docs/api/openapi.json`, produced
+from the application itself by `scripts/export_openapi.py`. CI regenerates it and
+fails when it differs from the committed copy, so every change to the API surface
+arrives with a visible contract diff.
+
+**Consequences.** Because CI installs the newest dependency versions within the
+declared ranges, a framework release that changes schema generation can fail the
+check without a code change; the remedy is to regenerate and commit, which keeps
+the published contract accurate.
+
+**Status.** Accepted (2026-10-28).
+
+## ADR-0021 — Document data model
+
+**Context.** The domain is a catalogue of items, each a self-contained record
+with a variable-length list of tags, read and written as a whole. Persistence must
+be managed, replicated, and free (ADR-0003).
+
+**Decision.** Store each item as a single MongoDB document, with tags embedded as
+an array, rather than normalizing them into relational tables. Every read
+resolves without a join, writes are single-document and therefore atomic without
+multi-document transactions, and the schema can evolve without migrations, with
+validation enforced at the API boundary by Pydantic.
+
+**Consequences.** Atlas M0 provides a managed, replicated deployment at no cost,
+satisfying ADR-0003. The domain is simple enough that a relational design would
+also serve, and free managed relational tiers exist; the choice rests on
+aggregate-shaped access, schema flexibility, and native asynchronous driver
+support (ADR-0008), not on a claim that relational storage could not. Queries
+that span items, such as reporting, would be served by the aggregation pipeline.
+
+**Status.** Accepted (2026-10-28).
