@@ -2,7 +2,7 @@
 # the pipeline enforce the same checks. Requires GNU make.
 
 .DEFAULT_GOAL := help
-.PHONY: help install lint typecheck test check up down observability-up validate
+.PHONY: help install lint typecheck test contract openapi check up down observability-up validate
 
 BACKEND := src/backend
 FRONTEND := src/frontend
@@ -19,14 +19,20 @@ lint: ## Lint backend (ruff) and frontend (eslint)
 	cd $(FRONTEND) && npm run lint
 
 typecheck: ## Type-check backend (mypy) and frontend (tsc)
-	cd $(BACKEND) && mypy app tests
+	cd $(BACKEND) && mypy app tests scripts
 	cd $(FRONTEND) && npm run typecheck
 
 test: ## Run backend (pytest) and frontend (vitest) suites
 	cd $(BACKEND) && pytest -q
 	cd $(FRONTEND) && npm test
 
-check: lint typecheck test ## Run every quality gate
+contract: ## Fail if the committed OpenAPI contract is out of date
+	cd $(BACKEND) && python scripts/export_openapi.py --check
+
+openapi: ## Regenerate the committed OpenAPI contract (docs/api/openapi.json)
+	cd $(BACKEND) && python scripts/export_openapi.py
+
+check: lint typecheck test contract ## Run every quality gate
 
 up: ## Start the full stack (docker compose)
 	docker compose up --build

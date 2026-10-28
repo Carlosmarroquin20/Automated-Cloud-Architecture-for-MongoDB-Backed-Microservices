@@ -59,10 +59,17 @@ jobs:
         run: ruff check .
 
       - name: Type-check (mypy --strict)
-        run: mypy app tests
+        run: mypy app tests scripts
 
       - name: Test (pytest)
         run: pytest -q
+
+      # The committed OpenAPI document is the published API contract. Changing
+      # the API surface without regenerating it fails here. One matrix leg
+      # suffices because the schema does not vary by interpreter version.
+      - name: Check the OpenAPI contract
+        if: matrix.python-version == '3.12'
+        run: python scripts/export_openapi.py --check
 
   # ---------------------------------------------------------------------------
   # Frontend quality gate.
