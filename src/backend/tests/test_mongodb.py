@@ -61,6 +61,40 @@ async def test_ping_exhausts_retries_and_degrades(monkeypatch: pytest.MonkeyPatc
     assert command.await_count == 3
 
 
+async def test_backoff_applies_full_jitter_under_a_capped_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = AsyncMock(side_effect=ServerSelectionTimeoutError("down"))
+    _patch_client(monkeypatch, command)
+
+    # The jitter draw records the ceiling it receives and returns half of it, so
+    # the ceiling schedule and the slept durations are distinguishable.
+    ceilings: list[float] = []
+
+    def _record(low: float, high: float) -> float:
+        assert low == 0.0
+        ceilings.append(high)
+        return high / 2
+
+    sleeps: list[float] = []
+
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.db.mongodb.random.uniform", _record)
+    monkeypatch.setattr("app.db.mongodb.asyncio.sleep", _sleep)
+
+    mongo = MongoDB(
+        _settings(mongodb_connect_max_retries=5, mongodb_connect_retry_base_delay_seconds=2.0)
+    )
+    await mongo.connect()
+
+    # The ceiling doubles per attempt and is capped at ten seconds; each sleep is
+    # the jittered draw rather than the ceiling itself.
+    assert ceilings == [2.0, 4.0, 8.0, 10.0, 10.0]
+    assert sleeps == [1.0, 2.0, 4.0, 5.0, 5.0]
+
+
 async def test_startup_probe_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     command = AsyncMock()
     _patch_client(monkeypatch, command)

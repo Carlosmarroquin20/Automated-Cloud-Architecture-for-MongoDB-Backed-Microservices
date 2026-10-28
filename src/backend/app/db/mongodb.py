@@ -3,14 +3,15 @@
 The native PyMongo asynchronous client is used in preference to Motor, which is
 deprecated. TLS is enforced by the Atlas SRV connection string. Client creation
 performs no network I/O; connectivity is validated through an explicit ping with
-bounded exponential backoff so that transient unavailability does not crash the
-process and is instead surfaced through readiness gating.
+bounded exponential backoff and full jitter so that transient unavailability does
+not crash the process and is instead surfaced through readiness gating.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import TYPE_CHECKING, Any
 
 from pymongo import AsyncMongoClient
@@ -26,6 +27,18 @@ logger = logging.getLogger(__name__)
 # Upper bound on backoff to prevent unbounded startup delay under sustained
 # database unavailability.
 _MAX_BACKOFF_SECONDS = 10.0
+
+
+def _jittered(ceiling: float) -> float:
+    """Return a full-jitter delay drawn uniformly from ``[0, ceiling]``.
+
+    Replicas restarted together, as in a rollout or a node failure, would retry in
+    lockstep under a deterministic schedule and reach the database as synchronized
+    bursts; randomizing the whole interval spreads those attempts out.
+    """
+    # Jitter is a scheduling concern with no security property, so the standard
+    # pseudo-random generator is adequate.
+    return random.uniform(0.0, ceiling)  # noqa: S311
 
 
 class MongoDB:
@@ -59,7 +72,7 @@ class MongoDB:
             return False
 
         max_retries = self._settings.mongodb_connect_max_retries
-        delay = self._settings.mongodb_connect_retry_base_delay_seconds
+        ceiling = self._settings.mongodb_connect_retry_base_delay_seconds
 
         for attempt in range(max_retries + 1):
             try:
@@ -73,12 +86,17 @@ class MongoDB:
                         extra={"attempts": attempt + 1, "error": str(exc)},
                     )
                     return False
+                delay = _jittered(ceiling)
                 logger.warning(
                     "mongodb connection attempt failed; retrying",
-                    extra={"attempt": attempt + 1, "retry_in_seconds": delay, "error": str(exc)},
+                    extra={
+                        "attempt": attempt + 1,
+                        "retry_in_seconds": round(delay, 3),
+                        "error": str(exc),
+                    },
                 )
                 await asyncio.sleep(delay)
-                delay = min(delay * 2, _MAX_BACKOFF_SECONDS)
+                ceiling = min(ceiling * 2, _MAX_BACKOFF_SECONDS)
 
         return False
 
