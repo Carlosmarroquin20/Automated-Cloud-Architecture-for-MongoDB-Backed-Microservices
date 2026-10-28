@@ -34,7 +34,8 @@ spec:
         - protocol: TCP
           port: 53
 ---
-# Frontend: reachable on port 80 (via the ingress controller) and permitted to
+# Frontend: reachable on container port 8080 (the Service maps port 80 to it
+# for the ingress controller) and permitted to
 # reach only the backend for its reverse proxy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -50,7 +51,7 @@ spec:
   ingress:
     - ports:
         - protocol: TCP
-          port: 80
+          port: 8080
   egress:
     - to:
         - podSelector:

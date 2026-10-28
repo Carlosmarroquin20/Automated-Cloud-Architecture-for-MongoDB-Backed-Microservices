@@ -16,11 +16,17 @@ RUN npm run build
 # ------------------------------------------------------------------------------
 # Runtime stage
 # A minimal nginx image serves the static assets and reverse-proxies API and
-# health traffic to the backend, keeping the browser on a single origin.
+# health traffic to the backend, keeping the browser on a single origin. The
+# unprivileged variant runs as a non-root user on a high port, so the container
+# needs no Linux capability and tolerates a read-only root filesystem.
 # ------------------------------------------------------------------------------
-FROM nginx:1.31-alpine@sha256:a3554c0d0b48177b1413c26e01f695334428020d9df01243fbae3e11cfd17417 AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e AS runtime
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+# Declared explicitly so the non-root runtime user is visible in the Dockerfile
+# rather than inherited silently from the base image.
+USER 101
+
+EXPOSE 8080

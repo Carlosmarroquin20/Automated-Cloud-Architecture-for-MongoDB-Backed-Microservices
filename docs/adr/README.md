@@ -65,7 +65,10 @@ first-class typing.
 (frontend) runtime images, running as a non-root user.
 
 **Consequences.** No shell or package manager ships in the backend runtime,
-reducing exploitability; the build tooling never reaches the final image.
+reducing exploitability; the build tooling never reaches the final image. The
+frontend uses the unprivileged nginx variant listening on port 8080, so neither
+runtime needs a Linux capability and both run with a read-only root filesystem
+on Kubernetes.
 
 **Status.** Accepted.
 
