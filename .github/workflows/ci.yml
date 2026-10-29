@@ -72,6 +72,43 @@ jobs:
         run: python scripts/export_openapi.py --check
 
   # ---------------------------------------------------------------------------
+  # Audit service quality gate.
+  # The audit service is an independently deployable codebase, so it carries
+  # its own lint, type, and test gates over the same interpreter range.
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Audit service (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/audit
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: src/audit/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Type-check (mypy --strict)
+        run: mypy app tests
+
+      - name: Test (pytest)
+        run: pytest -q
+
+  # ---------------------------------------------------------------------------
   # Frontend quality gate.
   # Dependencies are installed from the lockfile for a reproducible tree, and the
   # production bundle is built and retained as evidence of a shippable artifact.
@@ -195,7 +232,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, frontend]
+        component: [backend, frontend, audit]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -299,7 +336,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, frontend]
+        component: [backend, frontend, audit]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -381,6 +418,16 @@ jobs:
           tags: mongodb-microservice-frontend:latest
           cache-from: type=gha,scope=frontend
 
+      - name: Build audit image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: src/audit
+          file: src/audit/Dockerfile
+          load: true
+          push: false
+          tags: mongodb-microservice-audit:latest
+          cache-from: type=gha,scope=audit
+
       - name: Create ephemeral cluster
         uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
@@ -390,6 +437,7 @@ jobs:
         run: |
           kind load docker-image mongodb-microservice-backend:latest --name "$CLUSTER"
           kind load docker-image mongodb-microservice-frontend:latest --name "$CLUSTER"
+          kind load docker-image mongodb-microservice-audit:latest --name "$CLUSTER"
 
       - name: Validate with server-side dry run
         run: |
@@ -409,6 +457,7 @@ jobs:
           kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/outbox-relay --timeout=240s
+          kubectl -n "$NAMESPACE" rollout status deployment/audit --timeout=240s
 
       - name: Smoke test through the frontend
         run: |
@@ -448,6 +497,16 @@ jobs:
           echo "${stream}" | jq '{name, state: (.state | {messages, first_seq, last_seq})}'
           echo "${stream}" | jq -e '.state.messages == 2' >/dev/null \
             || { echo "::error::stream ITEMS does not hold exactly the two published events"; exit 1; }
+
+          # The audit consumer must have acknowledged both messages: nothing
+          # pending, nothing awaiting acknowledgement, and the acknowledgement
+          # floor at the last stream sequence.
+          consumer="$(kubectl -n "$NAMESPACE" exec nats-0 -- \
+            wget -qO- 'http://127.0.0.1:8222/jsz?accounts=true&streams=true&consumers=true' \
+            | jq '[.account_details[]?.stream_detail[]?.consumer_detail[]? | select(.name == "audit-service")][0]')"
+          echo "${consumer}" | jq '{name, num_pending, num_ack_pending, num_redelivered, ack_floor}'
+          echo "${consumer}" | jq -e '.num_pending == 0 and .num_ack_pending == 0 and .ack_floor.stream_seq == 2' >/dev/null \
+            || { echo "::error::the audit consumer has not acknowledged both events"; exit 1; }
 
       - name: Collect diagnostics
         if: failure()

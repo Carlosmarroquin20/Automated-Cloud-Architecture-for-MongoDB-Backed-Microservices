@@ -114,14 +114,50 @@ services:
     networks:
       - internal
 
+  # Consumes item events from JetStream and serves each item's history. It owns
+  # a separate database on the same local server; with Atlas, it would receive
+  # its own credential scoped to that database.
+  audit:
+    build:
+      context: ./src/audit
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      MONGODB_URI: ${AUDIT_MONGODB_URI:-mongodb://mongo:27017/?directConnection=true}
+      MONGODB_DB_NAME: audit
+      NATS_URL: nats://nats:4222
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    networks:
+      - internal
+
   frontend:
     build:
       context: ./src/frontend
     restart: unless-stopped
     ports:
       - "8080:8080"
+    # nginx resolves its upstream hosts at startup, so both API services must
+    # exist before it starts.
     depends_on:
       - backend
+      - audit
     networks:
       - internal
 

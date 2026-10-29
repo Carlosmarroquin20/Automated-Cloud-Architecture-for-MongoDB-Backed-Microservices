@@ -23,12 +23,15 @@ updates:
       actions:
         update-types: [minor, patch]
 
+  # Both Python services pin the same ranges, so one entry tracks them together.
   - package-ecosystem: pip
-    directory: /src/backend
+    directories:
+      - /src/backend
+      - /src/audit
     schedule:
       interval: weekly
     groups:
-      backend-python:
+      python-services:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
@@ -56,6 +59,7 @@ updates:
     directories:
       - /src/backend
       - /src/frontend
+      - /src/audit
     schedule:
       interval: weekly
     groups:

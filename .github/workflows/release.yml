@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [backend, frontend]
+        component: [backend, frontend, audit]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -132,5 +132,6 @@ jobs:
 
             - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-backend:${{ github.ref_name }}`
             - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-frontend:${{ github.ref_name }}`
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-audit:${{ github.ref_name }}`
 
             Provenance is verifiable with `gh attestation verify` or `cosign`.

@@ -57,6 +57,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: audit
       ports:
         - protocol: TCP
           port: 8000
@@ -101,7 +104,8 @@ spec:
         - protocol: TCP
           port: 27017
 ---
-# NATS: the client port accepts connections from the outbox relay only. The
+# NATS: the client port accepts connections from the outbox relay (the
+# publisher) and the audit service (the consumer) only. The
 # server initiates no connections, so all egress stays denied. Kubelet health
 # probes against the monitoring port are not subject to network policy.
 apiVersion: networking.k8s.io/v1
@@ -120,6 +124,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: outbox-relay
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: audit
       ports:
         - protocol: TCP
           port: 4222
@@ -145,6 +152,46 @@ spec:
       ports:
         - protocol: TCP
           port: 9000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 27017
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 4222
+---
+# Audit service: serves history to the frontend proxy and metrics to the
+# monitoring namespace; reaches MongoDB (scoped by port, as for the backend) and
+# consumes from NATS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: audit
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: audit
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
   egress:
     - to:
         - ipBlock:

@@ -12,8 +12,9 @@ labels:
       app.kubernetes.io/part-of: mongodb-microservice
       app.kubernetes.io/managed-by: kustomize
 
-# The mongodb-credentials Secret is deliberately not listed here; it is applied
-# out-of-band so no credential placeholder is ever rendered or committed.
+# The mongodb-credentials and audit-mongodb-credentials Secrets are deliberately
+# not listed here; they are applied out-of-band so no credential placeholder is
+# ever rendered or committed.
 resources:
   - namespace.yaml
   - configmap.yaml
@@ -26,4 +27,5 @@ resources:
   - pdb.yaml
   - nats.yaml
   - outbox-relay-deployment.yaml
+  - audit.yaml
   - network-policies.yaml

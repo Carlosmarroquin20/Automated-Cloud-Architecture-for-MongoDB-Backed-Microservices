@@ -1,0 +1,133 @@
+# Audit service: consumes item events from JetStream and serves each item's
+# history. Its database credential comes from a Secret of its own
+# (audit-mongodb-credentials), applied out of band like the items service's, so
+# each service can be granted access to its own database only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-config
+  labels:
+    app.kubernetes.io/component: audit
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  MONGODB_DB_NAME: "audit"
+  NATS_URL: "nats://nats:4222"
+  CONSUMER_DURABLE_NAME: "audit-service"
+  CONSUMER_MAX_DELIVER: "5"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit
+  labels:
+    app.kubernetes.io/name: audit
+    app.kubernetes.io/component: audit
+spec:
+  # Replicas pull from one durable consumer, so JetStream spreads messages across
+  # them and each event is processed by one replica at a time. The history is
+  # ordered by event time, so arrival order across replicas does not matter.
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: audit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: audit
+        app.kubernetes.io/component: audit
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: audit
+          image: mongodb-microservice-audit:latest
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: audit-config
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: audit-mongodb-credentials
+                  key: mongodb-uri
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness gates on the database the history API reads, not on the
+          # broker, so history stays available while consumption is paused.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 6
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit
+  labels:
+    app.kubernetes.io/name: audit
+    app.kubernetes.io/component: audit
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: audit
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

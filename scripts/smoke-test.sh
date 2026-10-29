@@ -54,6 +54,24 @@ code="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "${API}/${item_id}")"
 code="$(curl -sS -o /dev/null -w '%{http_code}' "${API}/${item_id}")"
 [ "${code}" = "404" ] || fail "deleted item still resolvable (HTTP ${code})"
 
+# The history outlives the item: the audit service built it from the events the
+# outbox relay published, so it arrives asynchronously and is polled for.
+echo "Reading the item's audit history"
+history_url="${BASE_URL}/api/v1/audit/items/${item_id}/events"
+history=""
+for _ in $(seq 1 30); do
+  history="$(curl -fsS "${history_url}" 2>/dev/null || true)"
+  if echo "${history}" | jq -e 'length == 2' >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+echo "${history}" | jq -e --arg id "${item_id}" '
+  map(.type) == ["item.created", "item.deleted"]
+  and all(.[]; .subject == $id)
+' >/dev/null || fail "audit history is incomplete: ${history}"
+echo "  $(echo "${history}" | jq -r 'map(.type) | join(" -> ")')"
+
 # Runs last because it deliberately exhausts this client's request budget. The
 # burst is concurrent so it exceeds the configured rate regardless of the
 # per-request latency of the path under test.

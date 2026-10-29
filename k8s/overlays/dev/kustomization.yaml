@@ -20,3 +20,10 @@ secretGenerator:
       - mongodb-uri=mongodb://mongo:27017/?directConnection=true
     options:
       disableNameSuffixHash: true
+  # The audit service reads its own Secret; locally it targets the same
+  # credential-free server and is isolated by database name.
+  - name: audit-mongodb-credentials
+    literals:
+      - mongodb-uri=mongodb://mongo:27017/?directConnection=true
+    options:
+      disableNameSuffixHash: true

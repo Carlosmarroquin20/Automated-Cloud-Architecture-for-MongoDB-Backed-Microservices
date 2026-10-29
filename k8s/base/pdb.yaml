@@ -23,3 +23,15 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit
+  labels:
+    app.kubernetes.io/name: audit
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: audit

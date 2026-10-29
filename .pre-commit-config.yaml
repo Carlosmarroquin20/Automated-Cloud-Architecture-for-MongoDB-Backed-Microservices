@@ -19,8 +19,8 @@ repos:
     rev: v0.16.6
     hooks:
       - id: ruff
-        name: ruff (backend lint)
-        files: ^src/backend/
+        name: ruff (Python services lint)
+        files: ^src/(backend|audit)/
         args: [--fix]
 
   - repo: https://github.com/gitleaks/gitleaks

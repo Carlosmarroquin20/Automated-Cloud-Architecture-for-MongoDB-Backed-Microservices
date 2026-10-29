@@ -5,6 +5,7 @@
 .PHONY: help install lint typecheck test contract openapi check up down observability-up validate
 
 BACKEND := src/backend
+AUDIT := src/audit
 FRONTEND := src/frontend
 
 help: ## Show available targets
@@ -12,18 +13,22 @@ help: ## Show available targets
 
 install: ## Install backend and frontend dependencies
 	cd $(BACKEND) && pip install -r requirements-dev.txt
+	cd $(AUDIT) && pip install -r requirements-dev.txt
 	cd $(FRONTEND) && npm ci
 
-lint: ## Lint backend (ruff) and frontend (eslint)
+lint: ## Lint the Python services (ruff) and frontend (eslint)
 	cd $(BACKEND) && ruff check .
+	cd $(AUDIT) && ruff check .
 	cd $(FRONTEND) && npm run lint
 
-typecheck: ## Type-check backend (mypy) and frontend (tsc)
+typecheck: ## Type-check the Python services (mypy) and frontend (tsc)
 	cd $(BACKEND) && mypy app tests scripts
+	cd $(AUDIT) && mypy app tests
 	cd $(FRONTEND) && npm run typecheck
 
-test: ## Run backend (pytest) and frontend (vitest) suites
+test: ## Run the Python service (pytest) and frontend (vitest) suites
 	cd $(BACKEND) && pytest -q
+	cd $(AUDIT) && pytest -q
 	cd $(FRONTEND) && npm test
 
 contract: ## Fail if the committed OpenAPI contract is out of date
