@@ -537,30 +537,42 @@ jobs:
       # span is a child of the relay's publish span, and the publish span a
       # child of a span from the items API: the trace context survived the
       # outbox document, the broker headers, and both process boundaries.
+      # Jaeger v2 serves searches through its v3 API, which returns OTLP JSON;
+      # spans are first flattened to their trace, id, parent, name, and service.
       - name: Verify one trace spans the request, the publish, and the consumption
         run: |
           kubectl -n "$NAMESPACE" port-forward svc/jaeger 16686:16686 > jaeger-port-forward.log 2>&1 &
           sleep 3
+          spans() {
+            local since until
+            since="$(date -u -d '-15 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+            until="$(date -u -d '+1 minute' +%Y-%m-%dT%H:%M:%SZ)"
+            curl -fsS "http://localhost:16686/api/v3/traces?query.serviceName=$1&query.startTimeMin=${since}&query.startTimeMax=${until}&query.searchDepth=100" 2>/dev/null \
+              | jq '[
+                  .result.resourceSpans[]?
+                  | ([.resource.attributes[]? | select(.key == "service.name") | .value.stringValue][0]) as $service
+                  | .scopeSpans[]?.spans[]?
+                  | {trace: .traceId, id: .spanId, parent: (.parentSpanId // ""), name, service: $service}
+                ]' 2>/dev/null || echo '[]'
+          }
           chains='[]'
           for _ in $(seq 1 30); do
-            traces="$(curl -fsS 'http://localhost:16686/api/traces?service=audit-service&limit=100' 2>/dev/null || echo '{}')"
-            chains="$(echo "${traces}" | jq '[
-              .data[]?
-              | . as $t
-              | ($t.spans | map({key: .spanID, value: .}) | from_entries) as $by
-              | [$t.spans[] | select(.operationName | startswith("process "))][0] as $consume
-              | select($consume != null)
-              | ($by[$consume.references[0].spanID // ""]) as $publish
-              | select($publish != null and ($publish.operationName | startswith("publish ")))
-              | ($by[$publish.references[0].spanID // ""]) as $origin
-              | select($origin != null)
-              | {
-                  trace: $t.traceID,
-                  origin: "\($t.processes[$origin.processID].serviceName): \($origin.operationName)",
-                  publish: "\($t.processes[$publish.processID].serviceName): \($publish.operationName)",
-                  consume: "\($t.processes[$consume.processID].serviceName): \($consume.operationName)"
-                }
-            ]')"
+            chains="$(spans audit-service | jq '
+              (map({key: .id, value: .}) | from_entries) as $by
+              | [ .[]
+                  | select(.name | startswith("process "))
+                  | . as $consume
+                  | $by[$consume.parent] as $publish
+                  | select($publish != null and ($publish.name | startswith("publish ")))
+                  | $by[$publish.parent] as $origin
+                  | select($origin != null)
+                  | {
+                      trace: $consume.trace,
+                      origin: "\($origin.service): \($origin.name)",
+                      publish: "\($publish.service): \($publish.name)",
+                      consume: "\($consume.service): \($consume.name)"
+                    }
+                ]')"
             if echo "${chains}" | jq -e 'length >= 2' >/dev/null; then
               break
             fi
@@ -569,14 +581,11 @@ jobs:
           echo "${chains}" | jq .
           # What the collector holds is printed so a failed assertion can be
           # diagnosed from the log alone: the services that reported spans, and
-          # for each recent trace its spans with their service and parent.
-          echo "services: $(curl -sS 'http://localhost:16686/api/services' || echo unavailable)"
+          # each service's recent spans with their trace and parent.
+          echo "services: $(curl -sS 'http://localhost:16686/api/v3/services' || echo unavailable)"
           for service in mongodb-microservice outbox-relay audit-service; do
-            curl -sS "http://localhost:16686/api/traces?service=${service}&limit=5" 2>/dev/null | jq -r --arg s "${service}" '
-              "== \($s): \(.data | length) traces (showing up to 5)",
-              (.data[]? | . as $t | "  trace \($t.traceID)",
-                ($t.spans[] | "    \($t.processes[.processID].serviceName) \(.operationName) span=\(.spanID) parent=\(.references[0].spanID // "-")"))
-            ' || echo "== ${service}: query failed"
+            echo "== ${service}"
+            spans "${service}" | jq -r '.[:25][] | "  \(.trace[:8]) \(.service) \(.name) span=\(.id) parent=\(if .parent == "" then "-" else .parent end)"'
           done
           echo "${chains}" | jq -e '
             length == 2
