@@ -405,8 +405,10 @@ jobs:
       - name: Wait for rollouts
         run: |
           kubectl -n "$NAMESPACE" rollout status statefulset/mongo --timeout=240s
+          kubectl -n "$NAMESPACE" rollout status statefulset/nats --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=240s
+          kubectl -n "$NAMESPACE" rollout status deployment/outbox-relay --timeout=240s
 
       - name: Smoke test through the frontend
         run: |
@@ -416,18 +418,36 @@ jobs:
 
       # The smoke test creates and deletes exactly one item on a fresh database,
       # so the outbox must hold exactly one created and one deleted event for
-      # that item, each committed atomically with its state change. No relay
-      # runs yet, so both remain pending.
-      - name: Verify transactional outbox events
+      # that item, each committed atomically with its state change. The relay
+      # publishes asynchronously, so publication is awaited with a deadline;
+      # the stream must then hold exactly those two messages, which also proves
+      # that no event was delivered twice.
+      - name: Verify outbox events reach JetStream
         run: |
-          events="$(kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh microservice --quiet --eval \
-            'print(JSON.stringify(db.outbox.find({}, {type: 1, subject: 1, published_at: 1}).toArray()))')"
+          outbox() {
+            kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh microservice --quiet --eval \
+              'print(JSON.stringify(db.outbox.find({}, {type: 1, subject: 1, published_at: 1}).toArray()))'
+          }
+          for _ in $(seq 1 30); do
+            events="$(outbox)"
+            if echo "${events}" | jq -e 'length == 2 and all(.[]; .published_at != null)' >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
           echo "${events}" | jq .
           echo "${events}" | jq -e '
             (map(.type) | sort) == ["item.created", "item.deleted"]
             and (map(.subject) | unique | length) == 1
-            and all(.[]; .published_at == null)
-          ' >/dev/null
+            and all(.[]; .published_at != null)
+          ' >/dev/null || { echo "::error::outbox events were not all published"; exit 1; }
+
+          stream="$(kubectl -n "$NAMESPACE" exec nats-0 -- \
+            wget -qO- 'http://127.0.0.1:8222/jsz?accounts=true&streams=true' \
+            | jq '[.account_details[]?.stream_detail[]? | select(.name == "ITEMS")][0]')"
+          echo "${stream}" | jq '{name, state: (.state | {messages, first_seq, last_seq})}'
+          echo "${stream}" | jq -e '.state.messages == 2' >/dev/null \
+            || { echo "::error::stream ITEMS does not hold exactly the two published events"; exit 1; }
 
       - name: Collect diagnostics
         if: failure()

@@ -17,6 +17,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: outbox-relay
       ports:
         - protocol: TCP
           port: 27017

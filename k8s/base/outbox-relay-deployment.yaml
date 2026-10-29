@@ -1,0 +1,98 @@
+# Outbox relay: publishes committed outbox events to NATS JetStream. It runs the
+# backend image with a different command, so it ships no separate artifact.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbox-relay
+  labels:
+    app.kubernetes.io/name: outbox-relay
+    app.kubernetes.io/component: messaging
+spec:
+  # A single relay keeps publication ordered. Recreate stops the old pod before
+  # the new one starts, so two relays never publish concurrently; overlap would
+  # stay correct through deduplication but would only repeat work.
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: outbox-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: outbox-relay
+        app.kubernetes.io/component: messaging
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # The relay finishes its current batch and drains the broker connection on
+      # SIGTERM; the grace period bounds that shutdown.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: outbox-relay
+          image: mongodb-microservice-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "app.messaging.relay"]
+          ports:
+            - name: metrics
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-credentials
+                  key: mongodb-uri
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The relay touches a heartbeat file on every pass. A stale file means
+          # the loop is stuck even though the process is alive, which a process
+          # check alone would miss. The check runs with the image's interpreter
+          # because the distroless image has no shell.
+          startupProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/outbox-relay.heartbeat') > 30)"
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/outbox-relay.heartbeat') > 30)"
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Writable scratch space so the root filesystem can remain read-only.
+        - name: tmp
+          emptyDir: {}

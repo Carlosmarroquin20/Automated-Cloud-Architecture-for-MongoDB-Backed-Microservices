@@ -100,3 +100,62 @@ spec:
       ports:
         - protocol: TCP
           port: 27017
+---
+# NATS: the client port accepts connections from the outbox relay only. The
+# server initiates no connections, so all egress stays denied. Kubelet health
+# probes against the monitoring port are not subject to network policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: outbox-relay
+      ports:
+        - protocol: TCP
+          port: 4222
+---
+# Outbox relay: reads the outbox from MongoDB (Atlas, scoped by port as for the
+# backend), publishes to NATS, and exposes metrics to the monitoring namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: outbox-relay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: outbox-relay
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 27017
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - protocol: TCP
+          port: 4222

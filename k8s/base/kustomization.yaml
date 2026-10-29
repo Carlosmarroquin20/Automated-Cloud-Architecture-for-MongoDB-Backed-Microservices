@@ -24,4 +24,6 @@ resources:
   - frontend-service.yaml
   - ingress.yaml
   - pdb.yaml
+  - nats.yaml
+  - outbox-relay-deployment.yaml
   - network-policies.yaml
