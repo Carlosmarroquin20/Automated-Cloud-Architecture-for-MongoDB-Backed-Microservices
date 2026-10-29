@@ -22,7 +22,7 @@ looks the way it does, not merely *what* it contains.
 | 0010 | Frontend stack | Accepted |
 | 0011 | Instance access and secret delivery | Accepted |
 | 0012 | CI/CD platform and pipeline topology | Accepted |
-| 0013 | Container registry and release model | Accepted |
+| 0013 | Container registry and release model | Accepted (amended) |
 | 0014 | GitHub Actions pinning strategy | Superseded by SHA pinning |
 | 0015 | Deploy verification strategy | Accepted (amended twice) |
 | 0016 | Observability stack and topology | Accepted |
@@ -184,7 +184,12 @@ ephemeral `GITHUB_TOKEN`; derive semantic tags with `docker/metadata-action`; an
 attach SLSA build provenance and an SBOM. CI builds and scans images but does not
 push them; only a tagged release publishes.
 
-**Status.** Accepted.
+**Status.** Accepted (amended 2026-10-28). The services expose their version at
+runtime, and before `v1.0.2` they reported `0.1.0` in every release. The
+release workflow now refuses to publish a component whose declared version
+differs from the tag, and the release notes reference the bare semantic image
+tags (`1.0.2`), which is what the registry holds; earlier notes pointed to
+`v`-prefixed tags that were never published.
 
 ## ADR-0014 — GitHub Actions pinning strategy
 

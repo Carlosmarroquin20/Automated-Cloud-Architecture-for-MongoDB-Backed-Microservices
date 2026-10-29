@@ -37,6 +37,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The services report their version at runtime (root endpoint, app_info
+      # metric, trace resource, OpenAPI document), so an image must never carry
+      # a version other than the tag it is published under. A tag cut without
+      # the matching version bump fails here, before anything is pushed.
+      - name: Verify the tag matches the declared version
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "${COMPONENT}" = frontend ]; then
+            declared="$(jq -r .version src/frontend/package.json)"
+          else
+            declared="$(sed -n 's/^version = "\(.*\)"$/\1/p' "src/${COMPONENT}/pyproject.toml")"
+            runtime="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "src/${COMPONENT}/app/__init__.py")"
+            [ "${runtime}" = "${declared}" ] || {
+              echo "::error::src/${COMPONENT}: __version__ ${runtime} differs from pyproject ${declared}"
+              exit 1
+            }
+          fi
+          [ "${declared}" = "${tag}" ] || {
+            echo "::error::src/${COMPONENT} declares ${declared}, but the tag is ${GITHUB_REF_NAME}"
+            exit 1
+          }
+          echo "src/${COMPONENT} declares ${declared}, matching ${GITHUB_REF_NAME}"
+
       - name: Resolve registry namespace
         id: ns
         # The registry path must be lowercase regardless of the account casing.
@@ -116,9 +141,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Resolve registry namespace
+      # Image tags carry the bare semantic version (metadata-action's
+      # {{version}}), so the leading "v" of the git tag is dropped for the
+      # pull references below.
+      - name: Resolve registry namespace and image tag
         id: ns
-        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -130,8 +160,8 @@ jobs:
             Published to the GitHub Container Registry with SLSA build provenance
             and an SBOM:
 
-            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-backend:${{ github.ref_name }}`
-            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-frontend:${{ github.ref_name }}`
-            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-audit:${{ github.ref_name }}`
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-backend:${{ steps.ns.outputs.version }}`
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-frontend:${{ steps.ns.outputs.version }}`
+            - `ghcr.io/${{ steps.ns.outputs.owner }}/mongodb-microservice-audit:${{ steps.ns.outputs.version }}`
 
             Provenance is verifiable with `gh attestation verify` or `cosign`.

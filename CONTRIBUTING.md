@@ -90,6 +90,20 @@ The test suites are hermetic and require no database or cloud credentials.
   is injected at runtime through environment variables and Kubernetes Secrets.
   A secret scan runs on every change.
 
+## Releases
+
+A release is an annotated `vX.Y.Z` tag on `main`. Before tagging, set the same
+version in every component, because the services report it at runtime:
+
+- `src/backend` and `src/audit`: `version` in `pyproject.toml` and
+  `__version__` in `app/__init__.py`
+- `src/frontend`: `version` in `package.json` and `package-lock.json`
+- `docs/api/openapi.json`: regenerate with `make openapi`
+
+The release workflow refuses to publish a component whose declared version
+differs from the tag. It then publishes the three images to GHCR with
+provenance and an SBOM, and creates the GitHub Release.
+
 ## Security
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not
