@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str = ""
     otel_console_export: bool = False
 
+    # Outbox relay. The relay publishes committed outbox events to NATS
+    # JetStream; the API process does not connect to the broker. Batches are
+    # bounded so a large backlog drains in steps that each finish promptly.
+    nats_url: str = "nats://nats:4222"
+    outbox_relay_batch_size: int = Field(default=100, ge=1, le=1000)
+    outbox_relay_poll_interval_seconds: float = Field(default=1.0, gt=0.0)
+    outbox_relay_metrics_port: int = Field(default=9000, ge=1, le=65535)
+
     @field_validator("log_level")
     @classmethod
     def _normalize_log_level(cls, value: str) -> str:

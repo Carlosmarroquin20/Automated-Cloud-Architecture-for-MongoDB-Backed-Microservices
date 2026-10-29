@@ -6,6 +6,8 @@ pydantic>=2.7,<3.0
 pydantic-settings>=2.2,<3.0
 pymongo>=4.9,<5.0
 prometheus-client>=0.20,<1.0
+# NATS JetStream client, used only by the outbox relay process.
+nats-py>=2.16,<3.0
 # Distributed tracing. Instrumentation packages follow the 0.x beta line that
 # tracks the 1.x API/SDK. Tracing is inert unless enabled through configuration.
 opentelemetry-sdk>=1.27,<2.0
