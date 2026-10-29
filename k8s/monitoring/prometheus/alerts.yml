@@ -79,13 +79,16 @@ groups:
             old; the relay cannot reach the broker or is not running.
 
       - alert: OutboxPublishFailing
-        expr: sum(rate(outbox_publish_failures_total[5m])) > 0
-        for: 5m
+        # A one-minute window follows the failure as it happens. With a
+        # five-minute window and hold, a four-minute broker outage raised the
+        # alert only after recovery and kept it firing five more minutes.
+        expr: sum(rate(outbox_publish_failures_total[1m])) > 0
+        for: 2m
         labels:
           severity: warning
         annotations:
           summary: Outbox publishes are failing
-          description: The relay has been failing to publish to JetStream for five minutes.
+          description: The relay has been failing to publish to JetStream for two minutes.
 
       - alert: AuditConsumerDisconnected
         expr: min(audit_consumer_connected) == 0

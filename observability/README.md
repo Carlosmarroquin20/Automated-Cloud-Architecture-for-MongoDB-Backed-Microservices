@@ -114,7 +114,7 @@ docker run --rm --entrypoint promtool -v "$PWD/observability/prometheus:/etc/pro
 | `HighRequestLatencyP95` | p95 latency above 500ms over 5m |
 | `EventServiceDown` | Relay or audit target unscrapeable for 1m |
 | `OutboxBacklogStale` | Oldest unpublished event older than 60s for 2m |
-| `OutboxPublishFailing` | Publish failures sustained for 5m |
+| `OutboxPublishFailing` | Publish failures in each 1m window for 2m |
 | `AuditConsumerDisconnected` | Any audit replica unbound from the stream for 2m |
 | `AuditEventsRetrying` | Events redelivered after storage failures for 5m |
 | `AuditEventsRejected` | Any malformed event terminated in the last 15m |
