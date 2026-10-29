@@ -8,6 +8,7 @@ resources:
   - mongo-service.yaml
   - mongo-statefulset.yaml
   - mongo-networkpolicy.yaml
+  - jaeger.yaml
 
 # Local development database credentials. The value is credential-free, so it is
 # safe to keep in the repository. directConnection pins the driver to the
@@ -27,3 +28,28 @@ secretGenerator:
       - mongodb-uri=mongodb://mongo:27017/?directConnection=true
     options:
       disableNameSuffixHash: true
+
+# Tracing is enabled here, against the overlay's own collector, so the CI
+# deployment can assert that one trace spans the request, the publish, and the
+# consumption. The base keeps it off because it ships no collector.
+patches:
+  - target:
+      kind: ConfigMap
+      name: backend-config
+    patch: |-
+      - op: add
+        path: /data/OTEL_ENABLED
+        value: "true"
+      - op: add
+        path: /data/OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://jaeger:4318/v1/traces
+  - target:
+      kind: ConfigMap
+      name: audit-config
+    patch: |-
+      - op: add
+        path: /data/OTEL_ENABLED
+        value: "true"
+      - op: add
+        path: /data/OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://jaeger:4318/v1/traces

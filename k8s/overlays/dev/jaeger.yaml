@@ -1,0 +1,149 @@
+# Trace collector and query UI for the dev overlay. Tracing is off in the base,
+# so production-shaped deployments carry no collector; here every service
+# exports spans to this instance, which makes a request observable across the
+# items API, the outbox relay, and the audit service. Storage is in-memory and
+# bounded by the image's default trace limit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/component: tracing
+spec:
+  replicas: 1
+  # In-memory storage cannot be shared, so a second instance would split traces.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jaeger
+        app.kubernetes.io/component: tracing
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: jaeger
+          image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: otlp-http
+              containerPort: 4318
+            - name: query
+              containerPort: 16686
+            - name: health
+              containerPort: 13133
+          env:
+            # Bounds the Go heap below the container limit so the in-memory
+            # store triggers collection instead of an out-of-memory kill.
+            - name: GOMEMLIMIT
+              value: "400MiB"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: health
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: health
+            periodSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/component: tracing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: jaeger
+  ports:
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: query
+      port: 16686
+      targetPort: query
+---
+# The collector accepts spans from the three traced services only. The query
+# port is reached through the API server (port-forward), which network policy
+# does not govern, so it needs no ingress rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: jaeger
+  labels:
+    app.kubernetes.io/name: jaeger
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [backend, outbox-relay, audit]
+      ports:
+        - protocol: TCP
+          port: 4318
+---
+# Additive egress for the traced services: the base policies permit only their
+# data paths, so span export to the collector is allowed here, where the
+# collector exists.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-span-export
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [backend, outbox-relay, audit]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jaeger
+      ports:
+        - protocol: TCP
+          port: 4318

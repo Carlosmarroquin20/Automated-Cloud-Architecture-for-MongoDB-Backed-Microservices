@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from opentelemetry.instrumentation.utils import is_instrumentation_enabled
 from prometheus_client import REGISTRY
 
 from app.messaging.relay import OutboxRelay, PublishError, encode_event
@@ -152,6 +153,29 @@ async def test_the_stored_trace_context_travels_in_the_message_headers() -> None
     first, second = (headers for _, _, headers in publisher.sent)
     assert first["traceparent"] == _TRACEPARENT
     assert "traceparent" not in second
+
+
+async def test_polling_reads_are_untraced_while_publishes_are_traced() -> None:
+    observed: dict[str, bool] = {}
+
+    async def read_pending() -> list[dict[str, Any]]:
+        observed["poll"] = is_instrumentation_enabled()
+        return [_event("e-1")]
+
+    async def mark_published(*_: Any) -> None:
+        observed["mark"] = is_instrumentation_enabled()
+
+    async def read_oldest(*_: Any, **__: Any) -> None:
+        observed["backlog"] = is_instrumentation_enabled()
+
+    outbox = _outbox([])
+    outbox.find.return_value.sort.return_value.limit.return_value.to_list = read_pending
+    outbox.update_one = mark_published
+    outbox.find_one = read_oldest
+
+    await _relay(outbox, _Publisher()).publish_pending()
+
+    assert observed == {"poll": False, "mark": True, "backlog": False}
 
 
 async def test_backlog_age_reflects_the_oldest_pending_event() -> None:

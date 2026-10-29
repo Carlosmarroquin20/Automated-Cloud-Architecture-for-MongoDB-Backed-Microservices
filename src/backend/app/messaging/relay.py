@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from nats.errors import Error as NatsError
 from opentelemetry import trace
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from opentelemetry.propagate import extract, inject
 from opentelemetry.trace import SpanKind
 from prometheus_client import Counter, Gauge, start_http_server
@@ -149,8 +150,13 @@ class OutboxRelay:
     async def publish_pending(self) -> int:
         """Publish one batch of pending events, oldest first; return how many."""
         cursor = self._outbox.find(_PENDING).sort("time", ASCENDING).limit(self._batch_size)
+        # Polling reads repeat every interval and have no causal link to any
+        # request, so they are kept out of traces; the publish of each event and
+        # its bookkeeping write remain traced.
+        with suppress_instrumentation():
+            pending = await cursor.to_list()
         published = 0
-        for event in await cursor.to_list():
+        for event in pending:
             try:
                 duplicate = await self._publish(event)
             except PublishError as exc:
@@ -200,7 +206,8 @@ class OutboxRelay:
             return await self._publisher.publish(subject, payload, headers)
 
     async def _record_backlog(self) -> None:
-        oldest = await self._outbox.find_one(_PENDING, sort=[("time", ASCENDING)])
+        with suppress_instrumentation():
+            oldest = await self._outbox.find_one(_PENDING, sort=[("time", ASCENDING)])
         age = 0.0
         if oldest is not None:
             age = max(0.0, (datetime.now(timezone.utc) - oldest["time"]).total_seconds())
