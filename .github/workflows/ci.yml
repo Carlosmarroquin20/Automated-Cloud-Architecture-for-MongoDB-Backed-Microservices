@@ -567,6 +567,17 @@ jobs:
             sleep 2
           done
           echo "${chains}" | jq .
+          # What the collector holds is printed so a failed assertion can be
+          # diagnosed from the log alone: the services that reported spans, and
+          # for each recent trace its spans with their service and parent.
+          echo "services: $(curl -sS 'http://localhost:16686/api/services' || echo unavailable)"
+          for service in mongodb-microservice outbox-relay audit-service; do
+            curl -sS "http://localhost:16686/api/traces?service=${service}&limit=5" 2>/dev/null | jq -r --arg s "${service}" '
+              "== \($s): \(.data | length) traces (showing up to 5)",
+              (.data[]? | . as $t | "  trace \($t.traceID)",
+                ($t.spans[] | "    \($t.processes[.processID].serviceName) \(.operationName) span=\(.spanID) parent=\(.references[0].spanID // "-")"))
+            ' || echo "== ${service}: query failed"
+          done
           echo "${chains}" | jq -e '
             length == 2
             and all(.[];
