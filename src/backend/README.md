@@ -14,8 +14,16 @@ bounded retries and explicit timeouts.
 - **Resilience:** startup connectivity is validated with exponential backoff;
   transient database unavailability degrades readiness rather than crashing the
   process.
+- **Events:** every create, update, and delete writes a CloudEvents 1.0 event to
+  a transactional outbox in the same MongoDB transaction as the change. A
+  separate relay process, built from the same image, publishes pending events to
+  NATS JetStream. The event contract is
+  [`docs/api/asyncapi.yaml`](../../docs/api/asyncapi.yaml).
 - **Observability:** every log record is JSON-formatted and carries a request
-  correlation identifier propagated via the `X-Request-ID` header.
+  correlation identifier propagated via the `X-Request-ID` header. Prometheus
+  metrics are served on `/metrics`, and OpenTelemetry tracing is available
+  behind `OTEL_ENABLED`; the trace context is stored with each event so the
+  relay and consumers continue the originating request's trace.
 - **Security posture:** configuration is environment-driven with no embedded
   secrets, unknown request fields are rejected, and internal error details are
   never returned to clients.
@@ -32,10 +40,12 @@ src/backend/
 │   │   └── v1/items.py     # Example persisted resource
 │   ├── core/               # Configuration, logging, context, error handling
 │   ├── db/mongodb.py       # Async connection manager with retry and timeouts
+│   ├── messaging/          # JetStream stream definition and the outbox relay
 │   ├── middleware/         # Request correlation and access logging
 │   ├── models/item.py      # Pydantic schemas
-│   ├── repositories/       # Storage-agnostic data access
+│   ├── repositories/       # Data access; items and the transactional outbox
 │   └── main.py             # Composition root and lifespan management
+├── scripts/                # OpenAPI contract export and drift check
 ├── tests/                  # Hermetic test suite (no live database required)
 ├── pyproject.toml
 ├── requirements.txt
@@ -87,6 +97,13 @@ values.
 | `MONGODB_CONNECT_MAX_RETRIES` | no | `5` | Startup retry attempts |
 | `MONGODB_CONNECT_RETRY_BASE_DELAY_SECONDS` | no | `0.5` | Initial backoff delay |
 | `CORS_ALLOW_ORIGINS` | no | empty | Comma-separated allowed origins |
+| `NATS_URL` | no | `nats://nats:4222` | Broker address (relay only) |
+| `OUTBOX_RELAY_BATCH_SIZE` | no | `100` | Events published per relay pass |
+| `OUTBOX_RELAY_POLL_INTERVAL_SECONDS` | no | `1.0` | Idle wait between relay passes |
+| `OUTBOX_RELAY_METRICS_PORT` | no | `9000` | Relay Prometheus endpoint port |
+| `OTEL_ENABLED` | no | `false` | Distributed tracing on/off |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | empty | OTLP/HTTP traces endpoint |
+| `OTEL_CONSOLE_EXPORT` | no | `false` | Also print spans to stdout |
 
 ## Local Development
 
@@ -111,7 +128,7 @@ Lint and type-check:
 
 ```bash
 ruff check .
-mypy app
+mypy app tests scripts
 ```
 
 Run the service (requires a reachable MongoDB instance and populated
@@ -120,6 +137,18 @@ environment):
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT:-8000}"
 ```
+
+Run the outbox relay (additionally requires a reachable NATS server with
+JetStream enabled):
+
+```bash
+python -m app.messaging.relay
+```
+
+Both processes need MongoDB running as a replica set, because the outbox is
+written in a multi-document transaction. Atlas clusters are replica sets; a
+local server is started with `--replSet` and initiated once, as the Compose
+stack does.
 
 The test suite is hermetic: persistence and connectivity dependencies are
 substituted with in-memory doubles, so no MongoDB instance is required to run it.

@@ -31,8 +31,9 @@ test: ## Run the Python service (pytest) and frontend (vitest) suites
 	cd $(AUDIT) && pytest -q
 	cd $(FRONTEND) && npm test
 
-contract: ## Fail if the committed OpenAPI contract is out of date
+contract: ## Fail if the OpenAPI or AsyncAPI contract no longer matches the code
 	cd $(BACKEND) && python scripts/export_openapi.py --check
+	cd $(BACKEND) && pytest -q tests/test_asyncapi_contract.py
 
 openapi: ## Regenerate the committed OpenAPI contract (docs/api/openapi.json)
 	cd $(BACKEND) && python scripts/export_openapi.py

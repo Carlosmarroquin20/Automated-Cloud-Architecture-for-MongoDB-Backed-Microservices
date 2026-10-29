@@ -1,0 +1,258 @@
+# Event contract for item changes, the asynchronous counterpart of openapi.json.
+# The backend test suite checks this document against the producer's code
+# (tests/test_asyncapi_contract.py), so a change to the published events fails
+# CI until the contract is updated with it.
+asyncapi: 3.0.0
+
+info:
+  title: Item events
+  version: 1.0.0
+  description: |
+    Domain events emitted by the items API whenever an item is created, updated,
+    or deleted.
+
+    Each event is written to a transactional outbox in the same MongoDB
+    transaction as the change it describes, then published to NATS JetStream by
+    the outbox relay. A change is therefore never persisted without its event,
+    and delivery is **at-least-once**: the broker drops a repeated
+    `Nats-Msg-Id` inside its two-minute duplicate window, and consumers must
+    deduplicate by event `id` beyond it.
+
+    Messages are [CloudEvents 1.0](https://github.com/cloudevents/spec) in
+    structured mode. Every event carries the full item state, so consumers need
+    no callback to the items API. Events for one item are published in commit
+    order; consumers that process in parallel order by the `time` attribute.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  tags:
+    - name: items
+      description: Item lifecycle events.
+
+defaultContentType: application/cloudevents+json
+
+servers:
+  jetstream:
+    host: nats:4222
+    protocol: nats
+    description: |
+      NATS JetStream, stream `ITEMS`: subjects `items.>`, file storage, limits
+      retention with a seven-day maximum age, and a 120-second duplicate window.
+      The host resolves inside the deployment network only.
+
+channels:
+  itemCreated:
+    address: items.created
+    description: An item was created.
+    messages:
+      itemCreated:
+        $ref: "#/components/messages/itemCreated"
+  itemUpdated:
+    address: items.updated
+    description: One or more fields of an item changed.
+    messages:
+      itemUpdated:
+        $ref: "#/components/messages/itemUpdated"
+  itemDeleted:
+    address: items.deleted
+    description: An item was deleted. The event carries its final state.
+    messages:
+      itemDeleted:
+        $ref: "#/components/messages/itemDeleted"
+
+operations:
+  publishItemCreated:
+    action: send
+    title: Publish item.created
+    summary: The outbox relay publishes the event once its transaction commits.
+    channel:
+      $ref: "#/channels/itemCreated"
+  publishItemUpdated:
+    action: send
+    title: Publish item.updated
+    summary: The outbox relay publishes the event once its transaction commits.
+    channel:
+      $ref: "#/channels/itemUpdated"
+  publishItemDeleted:
+    action: send
+    title: Publish item.deleted
+    summary: The outbox relay publishes the event once its transaction commits.
+    channel:
+      $ref: "#/channels/itemDeleted"
+  recordItemHistory:
+    action: receive
+    title: Record item history
+    summary: |
+      The audit service consumes every item event through the durable pull
+      consumer `audit-service` (explicit acknowledgement, at most five
+      deliveries) and appends it to the item's history, keyed by event id.
+    channel:
+      $ref: "#/channels/itemCreated"
+  recordItemUpdateHistory:
+    action: receive
+    title: Record item history (updates)
+    summary: The audit service records updates as for creations.
+    channel:
+      $ref: "#/channels/itemUpdated"
+  recordItemDeletionHistory:
+    action: receive
+    title: Record item history (deletions)
+    summary: The audit service records deletions as for creations.
+    channel:
+      $ref: "#/channels/itemDeleted"
+
+components:
+  messages:
+    itemCreated:
+      name: item.created
+      title: Item created
+      headers:
+        $ref: "#/components/schemas/MessageHeaders"
+      correlationId:
+        $ref: "#/components/correlationIds/traceparent"
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/CloudEvent"
+          - type: object
+            properties:
+              type:
+                const: item.created
+              data:
+                $ref: "#/components/schemas/ItemSnapshot"
+    itemUpdated:
+      name: item.updated
+      title: Item updated
+      headers:
+        $ref: "#/components/schemas/MessageHeaders"
+      correlationId:
+        $ref: "#/components/correlationIds/traceparent"
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/CloudEvent"
+          - type: object
+            properties:
+              type:
+                const: item.updated
+              data:
+                $ref: "#/components/schemas/ItemUpdate"
+    itemDeleted:
+      name: item.deleted
+      title: Item deleted
+      headers:
+        $ref: "#/components/schemas/MessageHeaders"
+      correlationId:
+        $ref: "#/components/correlationIds/traceparent"
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/CloudEvent"
+          - type: object
+            properties:
+              type:
+                const: item.deleted
+              data:
+                $ref: "#/components/schemas/ItemSnapshot"
+
+  correlationIds:
+    traceparent:
+      description: |
+        W3C trace context of the request that produced the event. The relay's
+        publish span and the consumer's processing span continue this trace.
+      location: $message.header#/traceparent
+
+  schemas:
+    MessageHeaders:
+      type: object
+      required: [Nats-Msg-Id, Content-Type]
+      properties:
+        Nats-Msg-Id:
+          type: string
+          format: uuid
+          description: Equal to the event id; the broker's deduplication key.
+        Content-Type:
+          type: string
+          const: application/cloudevents+json
+        traceparent:
+          type: string
+          pattern: "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+          description: Present when the producing request was traced.
+
+    CloudEvent:
+      type: object
+      description: CloudEvents 1.0 envelope in structured mode.
+      required: [id, specversion, type, source, subject, time, datacontenttype, data]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique per change; consumers deduplicate on it.
+        specversion:
+          type: string
+          const: "1.0"
+        type:
+          type: string
+          enum: [item.created, item.updated, item.deleted]
+        source:
+          type: string
+          const: /services/items-api
+        subject:
+          type: string
+          pattern: "^[0-9a-f]{24}$"
+          description: Identifier of the item the event describes.
+        time:
+          type: string
+          format: date-time
+          description: When the change was committed (UTC).
+        datacontenttype:
+          type: string
+          const: application/json
+        data:
+          type: object
+
+    Item:
+      type: object
+      description: Full item state, as returned by the items API.
+      required: [id, name, description, quantity, tags, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{24}$"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description:
+          type: [string, "null"]
+          maxLength: 1024
+        quantity:
+          type: integer
+          minimum: 0
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ItemSnapshot:
+      type: object
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/Item"
+
+    ItemUpdate:
+      type: object
+      required: [item, changed_fields]
+      properties:
+        item:
+          $ref: "#/components/schemas/Item"
+        changed_fields:
+          type: array
+          description: Names of the fields the update set, sorted.
+          items:
+            type: string
+            enum: [name, description, quantity, tags, updated_at]
