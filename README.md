@@ -138,6 +138,37 @@ the audit service. Prometheus scrapes all three services, Grafana visualizes
 them, and every service emits OTLP traces to Jaeger (dashed, opt-in). Images are
 built, signed, and pulled from GHCR.
 
+## Running system
+
+Captured from a live `OTEL_ENABLED=true docker compose --profile observability up`
+run under generated traffic: creates, updates, reads, filtered listings,
+deletes, and missing-item lookups. In that run the relay published 142 events
+and the audit service recorded exactly 142, with no duplicates, failures, or
+backlog; every one of them produced a complete trace across the three services.
+
+**One trace, three services.** A `PATCH` commits the item and its outbox event
+in one transaction (`findAndModify`, `insert`, `commitTransaction`); the relay's
+`publish` and the audit service's `process` and `insert` continue the same
+trace.
+
+![Jaeger trace of an item update spanning the items API, the outbox relay, and the audit service](docs/images/jaeger-trace.png)
+
+**Event Pipeline dashboard.** Publication and consumption rates by event type
+and outcome, outbox backlog age, broker duplicates, and the consumer's binding
+to the stream.
+
+![Grafana Event Pipeline dashboard under load](docs/images/grafana-event-pipeline.png)
+
+**Microservice Overview dashboard.** Request rate by status, latency
+percentiles, error ratio, saturation, process resources, and the running build.
+
+![Grafana Microservice Overview dashboard under load](docs/images/grafana-overview.png)
+
+**Web client.** The static frontend, served by unprivileged nginx with the API
+behind the same origin.
+
+![MongoDB Microservice Console web client](docs/images/frontend.png)
+
 ## Technology
 
 | Concern | Technology |
@@ -166,7 +197,7 @@ built, signed, and pulled from GHCR.
 ├── terraform/            # Infrastructure as Code (modular AWS)
 ├── k8s/                  # Kubernetes manifests (Kustomize base + overlay)
 ├── observability/        # Prometheus config + Grafana dashboards
-├── docs/                 # ADRs, C4 architecture, OpenAPI and AsyncAPI contracts
+├── docs/                 # ADRs, C4 architecture, API and event contracts, screenshots
 ├── scripts/              # End-to-end smoke test
 ├── docker-compose.yml    # Local multi-service orchestration
 ├── .gitattributes        # LF normalization for portable builds
