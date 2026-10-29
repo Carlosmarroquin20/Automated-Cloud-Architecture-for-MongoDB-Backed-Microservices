@@ -81,7 +81,7 @@ async def test_backoff_applies_full_jitter_under_a_capped_ceiling(
     async def _sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
-    monkeypatch.setattr("app.db.mongodb.random.uniform", _record)
+    monkeypatch.setattr("app.core.backoff.random.uniform", _record)
     monkeypatch.setattr("app.db.mongodb.asyncio.sleep", _sleep)
 
     mongo = MongoDB(

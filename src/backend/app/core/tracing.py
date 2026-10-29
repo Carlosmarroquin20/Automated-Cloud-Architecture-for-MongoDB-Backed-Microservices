@@ -35,15 +35,10 @@ _EXCLUDED_URLS = "health/live,health/ready,metrics"
 _instrumented = False
 
 
-def configure_tracing(app: FastAPI, settings: Settings) -> None:
-    """Install the tracer provider and instrument the app when tracing is enabled."""
-    global _instrumented
-    if not settings.otel_enabled or _instrumented:
-        return
-
+def _install_provider(settings: Settings, service_name: str) -> TracerProvider:
     resource = Resource.create(
         {
-            "service.name": settings.app_name,
+            "service.name": service_name,
             "service.version": __version__,
             "deployment.environment": settings.app_env,
         }
@@ -58,12 +53,38 @@ def configure_tracing(app: FastAPI, settings: Settings) -> None:
         provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
     trace.set_tracer_provider(provider)
-
-    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider, excluded_urls=_EXCLUDED_URLS)
-    PymongoInstrumentor().instrument(tracer_provider=provider)
-
-    _instrumented = True
     logger.info(
         "tracing enabled",
-        extra={"otlp_endpoint": settings.otel_exporter_otlp_endpoint or "console-only"},
+        extra={
+            "service_name": service_name,
+            "otlp_endpoint": settings.otel_exporter_otlp_endpoint or "console-only",
+        },
     )
+    return provider
+
+
+def configure_tracing(app: FastAPI, settings: Settings) -> None:
+    """Install the tracer provider and instrument the app when tracing is enabled."""
+    global _instrumented
+    if not settings.otel_enabled or _instrumented:
+        return
+
+    provider = _install_provider(settings, settings.app_name)
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider, excluded_urls=_EXCLUDED_URLS)
+    PymongoInstrumentor().instrument(tracer_provider=provider)
+    _instrumented = True
+
+
+def configure_worker_tracing(settings: Settings, service_name: str) -> None:
+    """Install the tracer provider for a non-HTTP worker process.
+
+    Workers report under their own service name so their spans appear as a
+    distinct node in the trace, linked to the request that produced their work.
+    """
+    global _instrumented
+    if not settings.otel_enabled or _instrumented:
+        return
+
+    provider = _install_provider(settings, service_name)
+    PymongoInstrumentor().instrument(tracer_provider=provider)
+    _instrumented = True

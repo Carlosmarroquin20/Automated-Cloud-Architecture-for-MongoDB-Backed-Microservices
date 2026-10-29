@@ -11,34 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from typing import TYPE_CHECKING, Any
 
 from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
 
+from app.core.backoff import backoff_delays
 from app.core.config import Settings
 
 if TYPE_CHECKING:
     from pymongo.asynchronous.database import AsyncDatabase
 
 logger = logging.getLogger(__name__)
-
-# Upper bound on backoff to prevent unbounded startup delay under sustained
-# database unavailability.
-_MAX_BACKOFF_SECONDS = 10.0
-
-
-def _jittered(ceiling: float) -> float:
-    """Return a full-jitter delay drawn uniformly from ``[0, ceiling]``.
-
-    Replicas restarted together, as in a rollout or a node failure, would retry in
-    lockstep under a deterministic schedule and reach the database as synchronized
-    bursts; randomizing the whole interval spreads those attempts out.
-    """
-    # Jitter is a scheduling concern with no security property, so the standard
-    # pseudo-random generator is adequate.
-    return random.uniform(0.0, ceiling)  # noqa: S311
 
 
 class MongoDB:
@@ -72,7 +56,7 @@ class MongoDB:
             return False
 
         max_retries = self._settings.mongodb_connect_max_retries
-        ceiling = self._settings.mongodb_connect_retry_base_delay_seconds
+        delays = backoff_delays(self._settings.mongodb_connect_retry_base_delay_seconds)
 
         for attempt in range(max_retries + 1):
             try:
@@ -86,7 +70,7 @@ class MongoDB:
                         extra={"attempts": attempt + 1, "error": str(exc)},
                     )
                     return False
-                delay = _jittered(ceiling)
+                delay = next(delays)
                 logger.warning(
                     "mongodb connection attempt failed; retrying",
                     extra={
@@ -96,7 +80,6 @@ class MongoDB:
                     },
                 )
                 await asyncio.sleep(delay)
-                ceiling = min(ceiling * 2, _MAX_BACKOFF_SECONDS)
 
         return False
 
