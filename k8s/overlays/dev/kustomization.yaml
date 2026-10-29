@@ -9,12 +9,14 @@ resources:
   - mongo-statefulset.yaml
   - mongo-networkpolicy.yaml
 
-# Local development database credentials. The value is credential-free
-# (mongodb://mongo:27017), so it is safe to keep in the repository. The hash
-# suffix is disabled so the generated Secret name matches the backend reference.
+# Local development database credentials. The value is credential-free, so it is
+# safe to keep in the repository. directConnection pins the driver to the
+# Service host, because the single replica set member registers under the pod's
+# own hostname. The hash suffix is disabled so the generated Secret name matches
+# the backend reference.
 secretGenerator:
   - name: mongodb-credentials
     literals:
-      - mongodb-uri=mongodb://mongo:27017
+      - mongodb-uri=mongodb://mongo:27017/?directConnection=true
     options:
       disableNameSuffixHash: true

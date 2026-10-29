@@ -414,6 +414,21 @@ jobs:
           sleep 3
           bash scripts/smoke-test.sh http://localhost:8080
 
+      # The smoke test creates and deletes exactly one item on a fresh database,
+      # so the outbox must hold exactly one created and one deleted event for
+      # that item, each committed atomically with its state change. No relay
+      # runs yet, so both remain pending.
+      - name: Verify transactional outbox events
+        run: |
+          events="$(kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh microservice --quiet --eval \
+            'print(JSON.stringify(db.outbox.find({}, {type: 1, subject: 1, published_at: 1}).toArray()))')"
+          echo "${events}" | jq .
+          echo "${events}" | jq -e '
+            (map(.type) | sort) == ["item.created", "item.deleted"]
+            and (map(.subject) | unique | length) == 1
+            and all(.[]; .published_at == null)
+          ' >/dev/null
+
       - name: Collect diagnostics
         if: failure()
         run: |

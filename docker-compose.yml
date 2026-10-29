@@ -8,10 +8,21 @@ services:
   mongo:
     image: mongo:7
     restart: unless-stopped
+    # A single-node replica set: the transactional outbox needs multi-document
+    # transactions, which a standalone server does not support.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     volumes:
       - mongo-data:/data/db
+    # Initiates the replica set on first start (a no-op once configured) and
+    # reports healthy only when this node is the writable primary, so dependents
+    # never start against a node that rejects writes.
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status() } catch (e) { rs.initiate() }; quit(db.hello().isWritablePrimary ? 0 : 1)"
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,7 +39,10 @@ services:
     stop_grace_period: 30s
     environment:
       APP_ENV: ${APP_ENV:-development}
-      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}
+      # directConnection pins the driver to this host; the replica set member is
+      # registered under the container's internal hostname, which other
+      # containers cannot resolve.
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/?directConnection=true}
       MONGODB_DB_NAME: ${MONGODB_DB_NAME:-microservice}
       MONGODB_PING_ON_STARTUP: "true"
       # Tracing is off by default; set OTEL_ENABLED=true (for example in a local

@@ -1,6 +1,8 @@
 # Single-node MongoDB for local iteration only. It carries no authentication
 # because it is reachable exclusively from the backend within the cluster network
-# policy; it is not a production database.
+# policy; it is not a production database. It runs as a one-member replica set
+# because the transactional outbox needs multi-document transactions, which a
+# standalone server does not support.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -23,6 +25,22 @@ spec:
       containers:
         - name: mongo
           image: mongo:7
+          args: ["--replSet", "rs0", "--bind_ip_all"]
+          # Initiates the replica set once mongod accepts connections. The hook
+          # is idempotent, so restarts and rescheduling are safe; the container
+          # is restarted if initiation never succeeds.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - bash
+                  - -c
+                  - |
+                    for _ in $(seq 1 60); do
+                      mongosh --quiet --eval 'try { rs.status() } catch (e) { rs.initiate() }' && exit 0
+                      sleep 2
+                    done
+                    exit 1
           ports:
             - name: mongo
               containerPort: 27017
@@ -33,16 +51,17 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-          # mongosh is a Node.js process whose startup alone can exceed the
-          # default one-second probe timeout under the CPU limit, which would keep
-          # the pod unready indefinitely; the timeout is widened accordingly.
+          # Ready only as the writable primary, so the headless Service never
+          # routes the backend to a node that rejects writes. mongosh is a
+          # Node.js process whose startup alone can exceed the default one-second
+          # probe timeout under the CPU limit; the timeout is widened accordingly.
           readinessProbe:
             exec:
               command:
                 - mongosh
                 - --quiet
                 - --eval
-                - db.adminCommand('ping').ok
+                - "quit(db.hello().isWritablePrimary ? 0 : 1)"
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 10
