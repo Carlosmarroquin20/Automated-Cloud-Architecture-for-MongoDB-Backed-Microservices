@@ -37,6 +37,7 @@ looks the way it does, not merely *what* it contains.
 | 0025 | Database per service | Accepted |
 | 0026 | Event contract as a checked artifact | Accepted |
 | 0027 | Trace context across the asynchronous boundary | Accepted |
+| 0028 | Broker outage as a verified failure mode | Accepted |
 
 ---
 
@@ -511,3 +512,33 @@ stored context is forwarded unchanged, so enabling tracing on one service later
 still joins existing chains.
 
 **Status.** Accepted (2026-10-28).
+
+## ADR-0028 — Broker outage as a verified failure mode
+
+**Context.** The outbox (ADR-0022) and the idempotent consumer (ADR-0024)
+promise that a broker outage delays events but never loses or duplicates them,
+and the event-pipeline alerts promise to report such an outage. Every check so
+far exercised the healthy path only, so those promises were stated, not shown.
+
+**Decision.** Treat a broker outage as a failure mode that is injected and
+verified. The CI deployment removes the NATS StatefulSet while the API takes
+writes and asserts that every write still succeeds, that the events wait in the
+outbox, and that the audit consumer reports itself unbound; after the broker
+returns, the outbox must drain and the outbox, the stream, and the audit history
+must hold the same number of events with nothing pending or awaiting
+acknowledgement. The alert rules carry `promtool` unit tests that replay an
+outage and its recovery.
+
+**Consequences.** A live four-minute outage under traffic, run before this
+decision, confirmed the guarantees: 327 events waited in the outbox, the backlog
+drained 20 seconds after the broker returned, and 440 new events ended in the
+outbox, the stream, and the audit history alike; the broker also discarded one
+republished event by its message id. The same run exposed two defects that
+healthy-path checks could not: the consumer reported itself bound throughout
+the outage, because a reconnecting client raises nothing and its fetches only
+time out, so its binding state now follows the client's connection events; and
+`OutboxPublishFailing`, with a five-minute window and hold, fired only after
+recovery and lingered five minutes, so it now uses a one-minute window and a
+two-minute hold.
+
+**Status.** Accepted (2026-10-29).

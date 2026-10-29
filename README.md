@@ -146,6 +146,15 @@ deletes, and missing-item lookups. In that run the relay published 142 events
 and the audit service recorded exactly 142, with no duplicates, failures, or
 backlog; every one of them produced a complete trace across the three services.
 
+**Broker outage.** In a second run, NATS was stopped for four minutes under the
+same traffic. Every write still succeeded and the history API stayed available;
+327 events waited in the outbox, `OutboxBacklogStale` fired, and the backlog
+drained 20 seconds after the broker returned. The outbox, the stream, and the
+audit history all ended at 1,148 events, with nothing pending; the broker
+discarded one republished event by its message id. The run exposed two defects,
+both fixed, and the same outage now runs in CI on every push
+([ADR-0028](docs/adr/README.md#adr-0028--broker-outage-as-a-verified-failure-mode)).
+
 **One trace, three services.** A `PATCH` commits the item and its outbox event
 in one transaction (`findAndModify`, `insert`, `commitTransaction`); the relay's
 `publish` and the audit service's `process` and `insert` continue the same
@@ -282,7 +291,7 @@ ephemeral cluster.
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface
