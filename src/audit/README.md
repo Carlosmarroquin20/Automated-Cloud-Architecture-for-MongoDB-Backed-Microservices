@@ -25,7 +25,10 @@ outlives the items it describes.
 - **Isolation:** the service connects with its own credential to its own
   `audit` database (database per service). Readiness depends on that database
   only, so history remains available while the broker is unreachable; the
-  consumer reconnects in the background with jittered backoff.
+  consumer reconnects in the background with jittered backoff. Its reported
+  binding state (`audit_consumer_connected`) follows the client's connection
+  events, because a reconnecting client raises no error and its fetches only
+  time out, exactly as on an idle stream.
 - **Tracing:** each message's processing span continues the trace carried in its
   `traceparent` header, so one trace links the originating request, the relay's
   publish, and the history write.

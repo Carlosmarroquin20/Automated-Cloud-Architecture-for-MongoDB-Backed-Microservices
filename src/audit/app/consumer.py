@@ -133,6 +133,14 @@ class AuditConsumer:
         self._connected = connected
         CONSUMER_CONNECTED.set(1 if connected else 0)
 
+    async def _on_disconnected(self) -> None:
+        self._set_connected(False)
+        logger.warning("consumer lost the broker connection; reconnecting")
+
+    async def _on_reconnected(self) -> None:
+        self._set_connected(True)
+        logger.info("consumer reconnected to the broker")
+
     def _config(self) -> ConsumerConfig:
         return ConsumerConfig(
             durable_name=self._settings.consumer_durable_name,
@@ -162,6 +170,12 @@ class AuditConsumer:
                     allow_reconnect=True,
                     max_reconnect_attempts=-1,
                     reconnect_time_wait=2,
+                    # The client reconnects by itself and raises nothing while it
+                    # does: fetches only time out, which is indistinguishable from
+                    # an idle stream. The binding state therefore follows the
+                    # client's connection events rather than fetch outcomes.
+                    disconnected_cb=self._on_disconnected,
+                    reconnected_cb=self._on_reconnected,
                 )
                 subscription = await client.jetstream().pull_subscribe(
                     FILTER_SUBJECT,

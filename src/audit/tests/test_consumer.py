@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nats.errors import TimeoutError as NatsTimeoutError
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -14,7 +16,8 @@ from opentelemetry.trace import SpanKind
 from prometheus_client import REGISTRY
 from pymongo.errors import ServerSelectionTimeoutError
 
-from app.consumer import EventHandler, redelivery_delay
+from app.config import Settings
+from app.consumer import AuditConsumer, EventHandler, redelivery_delay
 from app.models import ItemEvent
 from tests.conftest import item_event
 
@@ -125,3 +128,39 @@ async def test_processing_continues_the_trace_carried_by_the_message(
     assert f"{span.context.trace_id:032x}" == _TRACE_ID
     assert span.parent is not None
     assert f"{span.parent.span_id:016x}" == "b7ad6b7169203331"
+
+
+async def test_binding_state_follows_the_broker_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    # While the client reconnects, fetches only time out, exactly as on an idle
+    # stream; the reported state must come from the connection events instead.
+    stop = asyncio.Event()
+    callbacks: dict[str, Any] = {}
+    observed: list[bool] = []
+    repository = MagicMock()
+    repository.ensure_indexes = AsyncMock()
+    consumer = AuditConsumer(Settings(), repository)
+
+    async def fetch(*_: Any, **__: Any) -> list[Any]:
+        observed.append(consumer.connected)
+        await callbacks["disconnected_cb"]()
+        observed.append(consumer.connected)
+        await callbacks["reconnected_cb"]()
+        observed.append(consumer.connected)
+        stop.set()
+        raise NatsTimeoutError
+
+    async def connect(**kwargs: Any) -> MagicMock:
+        callbacks.update(kwargs)
+        client = MagicMock(is_closed=False)
+        client.drain = AsyncMock()
+        subscription = MagicMock()
+        subscription.fetch = fetch
+        client.jetstream.return_value.pull_subscribe = AsyncMock(return_value=subscription)
+        return client
+
+    monkeypatch.setattr("app.consumer.nats.connect", connect)
+
+    await asyncio.wait_for(consumer.run(stop), timeout=1.0)
+
+    assert observed == [True, False, True]
+    assert REGISTRY.get_sample_value("audit_consumer_connected") == 0.0
