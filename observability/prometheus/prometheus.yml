@@ -26,6 +26,23 @@ scrape_configs:
         labels:
           service: backend
 
+  # Event pipeline. The relay is a worker without an HTTP API, so it serves its
+  # metrics on a dedicated port; the audit service exposes them on its API port.
+  # Job names match the workload names, as on Kubernetes, so dashboards and
+  # alerts address both deployments identically.
+  - job_name: outbox-relay
+    static_configs:
+      - targets: ["outbox-relay:9000"]
+        labels:
+          service: outbox-relay
+
+  - job_name: audit
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["audit:8000"]
+        labels:
+          service: audit
+
   # Self-monitoring so the monitoring plane's own health is observable.
   - job_name: prometheus
     static_configs:

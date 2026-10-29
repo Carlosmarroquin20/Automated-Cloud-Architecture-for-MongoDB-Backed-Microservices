@@ -47,3 +47,77 @@ groups:
         annotations:
           summary: Elevated p95 request latency
           description: The 95th-percentile request latency exceeded 500ms over five minutes.
+
+  # The event pipeline fails silently from a client's point of view: writes keep
+  # succeeding while history falls behind. These rules therefore watch the
+  # pipeline's own progress signals rather than request symptoms.
+  - name: event-pipeline
+    rules:
+      - alert: EventServiceDown
+        expr: up{job=~"outbox-relay|audit"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} target is not scrapeable"
+          description: >-
+            Prometheus has failed to scrape {{ $labels.job }} for over one minute,
+            so events are not being published or consumed.
+
+      - alert: OutboxBacklogStale
+        # Events commit with their state change and normally publish within the
+        # relay's one-second poll, so a minute of age indicates a stall.
+        expr: max(outbox_oldest_pending_age_seconds) > 60
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Outbox events are not being published
+          description: >-
+            The oldest unpublished outbox event is {{ $value | humanizeDuration }}
+            old; the relay cannot reach the broker or is not running.
+
+      - alert: OutboxPublishFailing
+        expr: sum(rate(outbox_publish_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Outbox publishes are failing
+          description: The relay has been failing to publish to JetStream for five minutes.
+
+      - alert: AuditConsumerDisconnected
+        expr: min(audit_consumer_connected) == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: An audit replica is not bound to the stream
+          description: >-
+            At least one audit service replica has been reconnecting to JetStream
+            for two minutes; history for new events is delayed.
+
+      - alert: AuditEventsRetrying
+        # Retries mean the audit database is rejecting writes; deliveries stop
+        # after the consumer's maximum attempts.
+        expr: sum(rate(audit_events_consumed_total{outcome="retried"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Audit events are being redelivered
+          description: >-
+            The audit service has been failing to record events for five minutes;
+            events that exhaust their delivery attempts are not recorded.
+
+      - alert: AuditEventsRejected
+        # A rejected event is malformed and terminated without retry, so a single
+        # one indicates a contract mismatch between producer and consumer.
+        expr: sum(increase(audit_events_consumed_total{outcome="rejected"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Malformed events were rejected
+          description: >-
+            The audit service terminated events that do not match the published
+            contract (docs/api/asyncapi.yaml) within the last fifteen minutes.

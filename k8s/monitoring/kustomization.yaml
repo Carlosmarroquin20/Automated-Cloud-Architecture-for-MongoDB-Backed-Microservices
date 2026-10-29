@@ -38,3 +38,4 @@ configMapGenerator:
   - name: grafana-dashboards
     files:
       - grafana/dashboards/microservice-overview.json
+      - grafana/dashboards/event-pipeline.json
