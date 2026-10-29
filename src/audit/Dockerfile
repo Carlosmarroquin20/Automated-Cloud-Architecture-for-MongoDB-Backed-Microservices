@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+
+# ------------------------------------------------------------------------------
+# Builder stage
+# Dependencies are resolved into an isolated target directory so the runtime
+# image carries only the installed packages and none of the build tooling. The
+# interpreter minor version matches the distroless runtime (Python 3.11) so the
+# prebuilt wheels are binary-compatible.
+# ------------------------------------------------------------------------------
+FROM python:3.11-slim-bookworm@sha256:c425d915a89a6dcd3183b1797ad9bd8878caff5a417f6371c8df93c8ea8b727f AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --target=/deps -r requirements.txt
+
+# ------------------------------------------------------------------------------
+# Runtime stage
+# Distroless carries no shell, package manager, or extraneous binaries, which
+# minimizes the attack surface, and defaults to an unprivileged user.
+# ------------------------------------------------------------------------------
+FROM gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f AS runtime
+
+WORKDIR /app
+COPY --from=builder /deps /deps
+COPY app ./app
+
+# Third-party packages and the application source are both placed on the import
+# path; bytecode writing is disabled since the filesystem is treated as immutable.
+ENV PYTHONPATH=/app:/deps \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 8000
+
+# Runs as the distroless non-root user (uid 65532).
+USER nonroot
+
+# Binding to all interfaces is required for container ingress; external exposure
+# is governed by the orchestrator, not the process. On SIGTERM, uvicorn stops
+# accepting connections and drains in-flight requests; the drain is bounded below
+# the orchestrator's termination grace period so the lifespan shutdown, which
+# stops the event consumer and closes the MongoDB client, always runs before a
+# forced kill.
+ENTRYPOINT ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "20"]
