@@ -21,9 +21,13 @@ groups:
   - name: microservice-slo
     rules:
       - alert: HighErrorRate
+        # Ratio of 5xx responses over all responses across a five-minute window.
+        # The denominator is not clamped: clamping it to one request per second
+        # understated the ratio whenever traffic was lower. Without 5xx series
+        # the result is empty, and without traffic it is NaN; neither fires.
         expr: >-
           sum(rate(http_requests_total{status=~"5.."}[5m]))
-          / clamp_min(sum(rate(http_requests_total[5m])), 1)
+          / sum(rate(http_requests_total[5m]))
           > 0.05
         for: 5m
         labels:

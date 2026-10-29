@@ -11,7 +11,8 @@ stores traces. All tools are open-source and run locally at no cost.
 observability/
 ├── prometheus/
 │   ├── prometheus.yml     # Scrape config (three services + self) and rule wiring
-│   └── alerts.yml         # Availability, SLO, and event-pipeline rules
+│   ├── alerts.yml         # Availability, SLO, and event-pipeline rules
+│   └── alerts.test.yml    # promtool unit tests for the rules
 └── grafana/
     ├── provisioning/
     │   ├── datasources/    # Prometheus datasource (fixed uid)
@@ -94,6 +95,17 @@ Prometheus client library and drive the resource panels.
 Rules target client-visible symptoms and are visible in the Prometheus UI under
 **Alerts**. An Alertmanager is intentionally omitted locally to keep the
 footprint minimal; routing to a receiver is a deployment-time concern.
+
+The rules are unit-tested in [`prometheus/alerts.test.yml`](prometheus/alerts.test.yml):
+synthetic series are fed through them and the expected alerts asserted,
+including an error ratio at low traffic, where an earlier version of
+`HighErrorRate` understated the ratio and stayed silent. CI runs the tests with
+the same pinned Prometheus image Compose uses:
+
+```bash
+docker run --rm --entrypoint promtool -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+  prom/prometheus:v2.53.1 test rules /etc/prometheus/alerts.test.yml
+```
 
 | Alert | Condition |
 |-------|-----------|

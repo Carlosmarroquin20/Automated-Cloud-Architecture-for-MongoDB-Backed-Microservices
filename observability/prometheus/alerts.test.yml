@@ -1,0 +1,86 @@
+# Unit tests for the alerting rules, run with `promtool test rules` in CI.
+#
+# The error-ratio cases use low traffic on purpose: a denominator clamped to
+# one request per second once understated the ratio whenever traffic fell
+# below that rate, so a fifth of requests failing at 0.17 requests per second
+# read as 3% and never alerted. The k8s/monitoring copy of the rules is held
+# identical to this one by CI, so these tests cover both deployments.
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: error ratio is measured exactly at low traffic
+    interval: 1m
+    input_series:
+      # 8 successes and 2 failures per minute: 0.17 req/s, 20% errors.
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="200"}'
+        values: "0+8x30"
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="500"}'
+        values: "0+2x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Elevated server error rate
+              description: More than 5% of requests returned a 5xx status over five minutes.
+
+  - name: low traffic without errors does not alert
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="200"}'
+        values: "0+8x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  - name: an idle service does not alert
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="500"}'
+        values: "5x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  - name: an unscrapeable backend alerts after one minute
+    interval: 1m
+    input_series:
+      - series: 'up{job="backend",instance="backend:8000"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: backend
+              instance: backend:8000
+            exp_annotations:
+              summary: Backend target is not scrapeable
+              description: >-
+                Prometheus has failed to scrape the backend for over one minute,
+                indicating the service is down or unreachable.
+
+  - name: a stale outbox backlog alerts
+    interval: 1m
+    input_series:
+      - series: 'outbox_oldest_pending_age_seconds{job="outbox-relay",instance="outbox-relay:9000"}'
+        values: "0 30 90 150 210 270 330"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OutboxBacklogStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Outbox events are not being published
+              description: >-
+                The oldest unpublished outbox event is 4m 30s old; the relay
+                cannot reach the broker or is not running.

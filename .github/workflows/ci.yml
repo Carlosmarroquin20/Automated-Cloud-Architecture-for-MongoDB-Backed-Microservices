@@ -221,7 +221,7 @@ jobs:
       # promtool ships in the Prometheus image that Compose runs, so rules and
       # configuration are checked by the version that evaluates them. Each
       # configuration is checked together with the rule file it references.
-      - name: Validate Prometheus configuration and rules
+      - name: Validate and unit-test Prometheus configuration and rules
         env:
           PROMETHEUS_IMAGE: prom/prometheus:v2.53.1@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6
         run: |
@@ -231,6 +231,11 @@ jobs:
               -v "${PWD}/${dir}:/etc/prometheus:ro" \
               "${PROMETHEUS_IMAGE}" check config /etc/prometheus/prometheus.yml
           done
+          # Rule unit tests feed synthetic series through the rules and assert
+          # which alerts fire; the cluster rules are identical, as checked below.
+          docker run --rm --entrypoint promtool \
+            -v "${PWD}/observability/prometheus:/etc/prometheus:ro" \
+            "${PROMETHEUS_IMAGE}" test rules /etc/prometheus/alerts.test.yml
 
       # Kustomize cannot read outside its root, so the cluster carries copies of
       # the Compose dashboards and rules. The copies must stay identical; rule

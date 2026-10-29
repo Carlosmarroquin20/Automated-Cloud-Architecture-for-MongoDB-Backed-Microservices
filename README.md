@@ -233,7 +233,7 @@ Every layer ships with automated verification.
 | Backend | `ruff check` · `mypy --strict` (50 files) · `pytest` (62 tests) · OpenAPI drift check · AsyncAPI contract tests |
 | Audit service | `ruff check` · `mypy --strict` (15 files) · `pytest` (20 tests) |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
-| Monitoring | `promtool check config` for both Prometheus configurations and their rules · dashboard and rule copies kept identical |
+| Monitoring | `promtool check config` for both Prometheus configurations · `promtool test rules` unit tests for the alerts · dashboard and rule copies kept identical |
 
 The frontend production bundle is approximately 6.6 kB gzipped (JavaScript and
 CSS combined). All test suites are hermetic and require no database or broker.
