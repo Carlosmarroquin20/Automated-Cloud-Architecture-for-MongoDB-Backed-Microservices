@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     mongodb_server_selection_timeout_ms: int = Field(default=5000, ge=1)
     mongodb_connect_timeout_ms: int = Field(default=10000, ge=1)
     mongodb_socket_timeout_ms: int = Field(default=10000, ge=1)
+    # Upper bound on a write, including the driver's transaction retries, which
+    # otherwise continue for up to 120 seconds. It sits well below the reverse
+    # proxy's 60-second read timeout, so the client learns that the write failed
+    # instead of timing out while the write may still commit behind it.
+    mongodb_transaction_timeout_ms: int = Field(default=10000, ge=1)
 
     # Startup connectivity warm-up. Disabling the ping supports hermetic test
     # execution without a reachable database.

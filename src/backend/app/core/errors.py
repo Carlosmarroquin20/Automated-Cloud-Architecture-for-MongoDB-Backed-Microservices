@@ -17,11 +17,16 @@ from typing import Any, cast
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pymongo.errors import ConnectionFailure, PyMongoError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.exceptions import EntityNotFoundError, InvalidObjectIdError
 
 logger = logging.getLogger(__name__)
+
+# Seconds a client is asked to wait before retrying while the database is
+# unreachable; long enough for a replica set election to complete.
+RETRY_AFTER_SECONDS = 5
 
 
 def _envelope(code: str, message: str, details: Any = None) -> dict[str, Any]:
@@ -77,9 +82,30 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     )
 
 
+async def _database_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    db_exc = cast(PyMongoError, exc)
+    # An unreachable database or an expired deadline is a transient condition
+    # the client can retry, so it is reported as 503 rather than as a defect.
+    # Any other driver error is a defect and takes the generic path.
+    if isinstance(db_exc, ConnectionFailure) or db_exc.timeout:
+        logger.warning(
+            "database unavailable",
+            extra={"path": request.url.path, "error": type(db_exc).__name__},
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_envelope(
+                code="service_unavailable", message="The service is temporarily unavailable"
+            ),
+            headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+        )
+    return await _unhandled_exception_handler(request, exc)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
     app.add_exception_handler(InvalidObjectIdError, _invalid_object_id_handler)
     app.add_exception_handler(EntityNotFoundError, _not_found_handler)
+    app.add_exception_handler(PyMongoError, _database_error_handler)
     app.add_exception_handler(Exception, _unhandled_exception_handler)

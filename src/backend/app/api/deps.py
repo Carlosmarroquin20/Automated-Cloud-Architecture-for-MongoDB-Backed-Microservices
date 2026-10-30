@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Depends, Request
 
+from app.core.config import get_settings
 from app.db.mongodb import MongoDB
 from app.repositories.item_repository import ItemRepository
 
@@ -26,4 +27,5 @@ def get_database(mongodb: MongoDB = Depends(get_mongodb)) -> AsyncDatabase[dict[
 def get_item_repository(
     database: AsyncDatabase[dict[str, Any]] = Depends(get_database),
 ) -> ItemRepository:
-    return ItemRepository(database)
+    timeout_ms = get_settings().mongodb_transaction_timeout_ms
+    return ItemRepository(database, transaction_timeout_seconds=timeout_ms / 1000)

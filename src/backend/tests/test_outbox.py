@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from bson import ObjectId
 from opentelemetry.sdk.trace import TracerProvider
+from pymongo import _csot
 
 from app.models.item import ItemCreate, ItemUpdate
 from app.repositories.item_repository import ItemRepository
@@ -156,3 +157,25 @@ async def test_indexes_include_the_pending_scan_and_published_ttl() -> None:
     by_name = {call.kwargs["name"]: call for call in outbox.create_index.await_args_list}
     assert set(by_name) == {"pending_by_time", "published_ttl"}
     assert by_name["published_ttl"].kwargs["expireAfterSeconds"] == PUBLISHED_RETENTION_SECONDS
+
+
+async def test_every_transaction_runs_under_the_configured_deadline() -> None:
+    # The driver's own retry budget is 120 seconds; the deadline is what keeps a
+    # write during a database outage from outliving the client's request.
+    database, items, _, session = _database()
+    items.insert_one = AsyncMock()
+    deadlines: list[float | None] = []
+    run = session.with_transaction
+
+    async def observed(callback: Callable[[_Session], Awaitable[Any]]) -> Any:
+        deadlines.append(_csot.get_timeout())
+        return await run(callback)
+
+    session.with_transaction = observed  # type: ignore[method-assign]
+
+    await ItemRepository(database, transaction_timeout_seconds=2.5).create(
+        ItemCreate(name="spool", quantity=3)
+    )
+
+    assert deadlines == [2.5]
+    assert _csot.get_timeout() is None

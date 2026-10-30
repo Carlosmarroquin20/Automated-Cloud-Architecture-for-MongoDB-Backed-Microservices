@@ -722,6 +722,42 @@ jobs:
             and .consumer.num_ack_pending == 0
           ' >/dev/null || { echo "::error::dead letters or unacknowledged events remain"; exit 1; }
 
+      # Failure injection: the database is removed. A write must be refused
+      # with 503 and Retry-After well inside the proxy's 60-second timeout,
+      # rather than waiting out the driver's 120-second transaction retries
+      # and committing after the client has given up. The request goes to a
+      # backend pod directly: readiness withdraws the pods from the Service
+      # while the database is down, so the proxy path would test the routing
+      # instead of the service.
+      - name: Refuse writes quickly while the database is down
+        run: |
+          kubectl -n "$NAMESPACE" scale statefulset/mongo --replicas=0
+          kubectl -n "$NAMESPACE" wait --for=delete pod/mongo-0 --timeout=120s
+          pod="$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=backend -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n "$NAMESPACE" port-forward "pod/${pod}" 38000:8000 > database-outage-port-forward.log 2>&1 &
+          sleep 3
+
+          curl -sS -o response.json -D headers.txt -w '%{http_code} %{time_total}\n' --max-time 60 \
+            -X POST http://localhost:38000/api/v1/items -H 'Content-Type: application/json' \
+            -d '{"name":"during-outage","quantity":1}' | tee result.txt
+          read -r code seconds < result.txt
+          cat response.json; echo
+          [ "${code}" = "503" ] || { echo "::error::a write during the outage returned HTTP ${code}"; exit 1; }
+          awk -v s="${seconds}" 'BEGIN { exit !(s < 20) }' \
+            || { echo "::error::the refusal took ${seconds}s"; exit 1; }
+          grep -qi '^retry-after: 5' headers.txt || { echo "::error::Retry-After is missing"; exit 1; }
+          jq -e '.error.code == "service_unavailable"' response.json >/dev/null \
+            || { echo "::error::unexpected error envelope"; exit 1; }
+
+          kubectl -n "$NAMESPACE" scale statefulset/mongo --replicas=1
+          kubectl -n "$NAMESPACE" rollout status statefulset/mongo --timeout=240s
+          kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=240s
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready pod -l app.kubernetes.io/name=backend --timeout=180s
+          # The refused write must not have committed behind the response.
+          count="$(kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh --quiet --eval \
+            'print(db.getSiblingDB("microservice").items.countDocuments({name: "during-outage"}))')"
+          [ "${count}" = "0" ] || { echo "::error::the refused write was committed (${count})"; exit 1; }
+
       - name: Collect diagnostics
         if: failure()
         run: |
@@ -733,7 +769,7 @@ jobs:
             kubectl -n "$NAMESPACE" logs "$pod" --all-containers --previous --tail=40 2>/dev/null || true
           done
           kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
-          cat port-forward.log jaeger-port-forward.log outage-port-forward.log dead-letter-port-forward.log 2>/dev/null || true
+          cat port-forward.log jaeger-port-forward.log outage-port-forward.log dead-letter-port-forward.log database-outage-port-forward.log 2>/dev/null || true
           # A condensed view is also emitted as annotations, which remain readable
           # on the run page and through the API without downloading the logs.
           kubectl -n "$NAMESPACE" get pods --no-headers 2>/dev/null | while read -r line; do
@@ -759,7 +795,8 @@ jobs:
             echo "followed by a readiness check and a create/read/delete round trip through the frontend,"
             echo "event delivery to the audit service, a trace spanning all three services, a"
             echo "broker outage survived without losing or duplicating an event, and an event the"
-            echo "audit database refused captured as a dead letter and replayed into the history."
+            echo "audit database refused captured as a dead letter and replayed into the history,"
+            echo "and writes refused with 503 within seconds while the database was down."
             echo
             echo '```'
             kubectl -n "$NAMESPACE" get pods -o wide 2>/dev/null || echo "cluster unavailable"

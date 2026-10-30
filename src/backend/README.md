@@ -91,6 +91,7 @@ values.
 | `MONGODB_SERVER_SELECTION_TIMEOUT_MS` | no | `5000` | Server selection timeout |
 | `MONGODB_CONNECT_TIMEOUT_MS` | no | `10000` | Socket connect timeout |
 | `MONGODB_SOCKET_TIMEOUT_MS` | no | `10000` | Socket operation timeout |
+| `MONGODB_TRANSACTION_TIMEOUT_MS` | no | `10000` | Deadline for a write including transaction retries; 503 once it expires |
 | `MONGODB_MAX_POOL_SIZE` | no | `50` | Maximum pooled connections |
 | `MONGODB_MIN_POOL_SIZE` | no | `0` | Minimum pooled connections |
 | `MONGODB_PING_ON_STARTUP` | no | `true` | Validate connectivity at startup |

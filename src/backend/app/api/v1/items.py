@@ -12,7 +12,24 @@ from app.models.errors import ErrorResponse
 from app.models.item import ItemCreate, ItemResponse, ItemUpdate
 from app.repositories.item_repository import ItemRepository
 
-router = APIRouter(prefix="/items", tags=["items"])
+# Every item operation reaches the database, so each can answer 503 while it is
+# unreachable; the Retry-After header carries the suggested wait.
+router = APIRouter(
+    prefix="/items",
+    tags=["items"],
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "Database unavailable; retry after the Retry-After interval",
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds to wait before retrying.",
+                    "schema": {"type": "integer"},
+                }
+            },
+        }
+    },
+)
 
 # Documented error responses reuse the uniform error envelope so the schema
 # advertises the exact shape clients receive on failure.

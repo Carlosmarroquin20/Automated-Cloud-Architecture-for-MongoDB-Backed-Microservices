@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, TypeVar
 
+import pymongo
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import ReturnDocument
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.database import AsyncDatabase
 
 COLLECTION_NAME = "items"
+# Matches the MONGODB_TRANSACTION_TIMEOUT_MS default.
+DEFAULT_TRANSACTION_TIMEOUT_SECONDS = 10.0
 
 _T = TypeVar("_T")
 
@@ -71,8 +74,13 @@ def _build_filter(tag: str | None, query: str | None) -> dict[str, Any]:
 
 
 class ItemRepository:
-    def __init__(self, database: AsyncDatabase[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        database: AsyncDatabase[dict[str, Any]],
+        transaction_timeout_seconds: float = DEFAULT_TRANSACTION_TIMEOUT_SECONDS,
+    ) -> None:
         self._database = database
+        self._transaction_timeout = transaction_timeout_seconds
         self._collection: AsyncCollection[dict[str, Any]] = database[COLLECTION_NAME]
         self._outbox: AsyncCollection[dict[str, Any]] = database[OUTBOX_COLLECTION]
 
@@ -85,9 +93,14 @@ class ItemRepository:
     async def _transact(self, operation: Callable[[AsyncClientSession], Awaitable[_T]]) -> _T:
         # with_transaction retries the whole operation on transient errors and the
         # commit on an unknown commit result, as the driver recommends; the
-        # operation must therefore be safe to run more than once.
+        # operation must therefore be safe to run more than once. Left alone the
+        # retries continue for 120 seconds, past the reverse proxy's timeout, so
+        # a client could be told the write failed while it later committed. The
+        # deadline bounds every attempt and the retry loop together; once it
+        # expires the driver raises a timeout error, answered with 503.
         async with self._database.client.start_session() as session:
-            return await session.with_transaction(operation)
+            with pymongo.timeout(self._transaction_timeout):
+                return await session.with_transaction(operation)
 
     async def create(self, data: ItemCreate) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
