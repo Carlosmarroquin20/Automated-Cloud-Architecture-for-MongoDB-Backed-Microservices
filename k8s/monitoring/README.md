@@ -14,7 +14,7 @@ k8s/monitoring/
 ├── prometheus/
 │   ├── rbac.yaml            # Read-only ServiceAccount/ClusterRole for discovery
 │   ├── prometheus.yml       # Annotation-driven pod discovery + rule wiring
-│   ├── alerts.yml           # Availability, SLO, and event-pipeline rules
+│   ├── alerts.yml           # SLO recordings, burn-rate, availability, and event-pipeline rules
 │   ├── deployment.yaml
 │   └── service.yaml
 ├── grafana/
@@ -22,7 +22,8 @@ k8s/monitoring/
 │   ├── dashboard-provider.yaml  # File-based dashboard provider
 │   ├── dashboards/
 │   │   ├── microservice-overview.json
-│   │   └── event-pipeline.json
+│   │   ├── event-pipeline.json
+│   │   └── service-level-objectives.json
 │   ├── deployment.yaml
 │   └── service.yaml
 └── kustomization.yaml

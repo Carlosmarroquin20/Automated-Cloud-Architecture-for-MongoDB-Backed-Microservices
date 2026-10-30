@@ -39,3 +39,4 @@ configMapGenerator:
     files:
       - grafana/dashboards/microservice-overview.json
       - grafana/dashboards/event-pipeline.json
+      - grafana/dashboards/service-level-objectives.json

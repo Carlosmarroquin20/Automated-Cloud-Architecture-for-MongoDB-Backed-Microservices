@@ -39,6 +39,8 @@ looks the way it does, not merely *what* it contains.
 | 0027 | Trace context across the asynchronous boundary | Accepted |
 | 0028 | Broker outage as a verified failure mode | Accepted |
 | 0029 | Dead letters captured by the broker | Accepted |
+| 0030 | Service level objectives and burn-rate alerting | Accepted |
+| 0031 | Bounded writes during a database outage | Accepted |
 
 ---
 
@@ -582,5 +584,77 @@ surface, reachable through the public proxy, is read-only. CI refuses one
 event's write with a collection validator, asserts it becomes a dead letter and
 stays out of the history, then replays it and asserts the history holds it and
 nothing remains pending.
+
+**Status.** Accepted (2026-10-30).
+
+## ADR-0030 — Service level objectives and burn-rate alerting
+
+**Context.** The API alerted on fixed thresholds: more than 5% server errors, or
+a p95 above 500ms, sustained for five minutes. Such rules say nothing about how
+much unreliability is acceptable, page on brief spikes that cost little, and
+stay silent on a modest error rate sustained for days, which costs a great deal.
+They also counted probe traffic alongside client requests.
+
+**Decision.** The items API has two objectives over a rolling 30-day period,
+measured on its versioned `/api/` routes only: 99.5% of requests answered
+without a server error, and 99% completed within 500ms. Recording rules compute
+each error ratio once per window, from five minutes to thirty days, and the
+remaining budget. Alerts follow the multiwindow, multi-burn-rate method of the
+Google SRE Workbook: a burn rate of 14.4 over one hour or 6 over six hours pages,
+and 3 over one day or 1 over three days opens a ticket. Each long window is
+paired with a short one, a twelfth of its length, so an alert ends soon after
+the burn stops. The rules replace `HighErrorRate` and `HighRequestLatencyP95`
+and carry `promtool` tests, including a low-traffic outage diluted by probe
+traffic, a page that clears after the burn stops, and a day-long modest error
+rate that opens a ticket without paging; each test fails when its property is
+removed from the rules. Local Prometheus retains 31 days so the 30-day windows
+are complete. A Service Level Objectives dashboard shows the indicators, the
+budgets, and the burn rates against the alerting thresholds. Generating the
+rules with a tool such as Sloth or Pyrra was considered; with two objectives,
+hand-written rules under unit tests add no dependency and stay readable.
+
+**Consequences.** Alerts now express budget consumption: a short spike that
+spends little of the budget no longer pages, and a slow leak opens a ticket. In
+a live five-minute database outage under five requests per second, both fast
+burn alerts fired 3 minutes 50 seconds after the outage began: about 30 seconds
+until the first failed response, up to a minute for the once-a-minute recording,
+and the time for the one-hour ratio to cross 14.4 times the budget. The
+indicator is measured at the service, so a request that never reaches it is not
+counted: in Kubernetes, readiness withdraws the pods while the database is down
+and the ingress answers instead. Measuring at the edge needs per-status metrics
+from the proxy or a synthetic probe, a follow-up. The in-cluster Prometheus
+keeps one day, so its 30-day windows cover that day only. Over a short local
+history an incident dominates the 30-day ratios; the same outage within a month
+of steady traffic would spend about 2% of the availability budget.
+
+**Status.** Accepted (2026-10-30).
+
+## ADR-0031 — Bounded writes during a database outage
+
+**Context.** The first live outage run for ADR-0030 showed no server errors at
+all. With MongoDB stopped for 90 seconds, each write waited inside the driver's
+transaction helper, which retries transient errors for up to 120 seconds. The
+reverse proxy gave up after its 60-second read timeout and answered 504, while
+the driver kept retrying; MongoDB returned within the retry window, the writes
+committed, and the service recorded them as successful, slow requests. Clients
+were told the writes failed although they had succeeded, so a retry would
+create duplicates, and the availability indicator saw nothing.
+
+**Decision.** Every write runs under a client-side operation deadline
+(`pymongo.timeout`, `MONGODB_TRANSACTION_TIMEOUT_MS`, default 10 seconds), which
+bounds each attempt and the transaction retries together, well inside the
+proxy's timeout. A database that is unreachable or exceeds the deadline is
+answered with `503 service_unavailable` and `Retry-After: 5`, documented on every
+item operation in the OpenAPI contract; other driver errors remain internal
+errors. CI removes the database in the deployed cluster, sends a write to a
+backend pod, and asserts a 503 with `Retry-After` within 20 seconds and that the
+refused write did not commit.
+
+**Consequences.** In the live five-minute outage that followed, under open-loop
+traffic, no request timed out at the proxy: 870 writes were refused within at
+most 10.5 seconds and 881 reads within 6.1 seconds, all counted by the
+availability indicator. A client learns of the failure while it can still act on
+it. A commit whose acknowledgement is lost when the deadline expires can still
+leave its outcome unknown; idempotency keys on creation would close that case.
 
 **Status.** Accepted (2026-10-30).

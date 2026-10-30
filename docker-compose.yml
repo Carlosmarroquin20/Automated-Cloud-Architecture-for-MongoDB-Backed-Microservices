@@ -175,7 +175,9 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=7d
+      # Covers the 30-day SLO window plus a day; at this scrape volume a month
+      # of series stays in the low hundreds of megabytes.
+      - --storage.tsdb.retention.time=31d
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro

@@ -11,7 +11,7 @@ stores traces. All tools are open-source and run locally at no cost.
 observability/
 ├── prometheus/
 │   ├── prometheus.yml     # Scrape config (three services + self) and rule wiring
-│   ├── alerts.yml         # Availability, SLO, and event-pipeline rules
+│   ├── alerts.yml         # SLO recordings, burn-rate, availability, and event-pipeline rules
 │   └── alerts.test.yml    # promtool unit tests for the rules
 └── grafana/
     ├── provisioning/
@@ -19,7 +19,8 @@ observability/
     │   └── dashboards/     # File-based dashboard provider
     └── dashboards/
         ├── microservice-overview.json
-        └── event-pipeline.json
+        ├── event-pipeline.json
+        └── service-level-objectives.json
 ```
 
 ## Run
@@ -39,8 +40,8 @@ docker compose --profile observability up --build
 | Grafana | http://localhost:3000 | Anonymous access (local only) |
 | Jaeger | http://localhost:16686 | Trace UI (when tracing is enabled) |
 
-Grafana provisions the **Microservice Overview** and **Event Pipeline**
-dashboards. Generate traffic against the API (for example through the UI) to
+Grafana provisions the **Microservice Overview**, **Event Pipeline**, and
+**Service Level Objectives** dashboards. Generate traffic against the API (for example through the UI) to
 populate the panels; every create, update, and delete also moves an event
 through the pipeline.
 
@@ -91,6 +92,33 @@ Event pipeline:
 Process and interpreter metrics (`process_*`, `python_*`) are exported by the
 Prometheus client library and drive the resource panels.
 
+## Service Level Objectives
+
+The items API has two objectives over a rolling 30-day period, measured on its
+versioned `/api/` routes only (probes and scrapes are not client traffic):
+
+| Objective | Indicator | Error budget |
+|-----------|-----------|--------------|
+| Availability 99.5% | Requests answered without a 5xx status | 0.5% of requests |
+| Latency 99% | Requests completed within 500ms | 1% of requests |
+
+Recording rules (`slo:api_errors:ratio_rate*`, `slo:api_slow_requests:ratio_rate*`)
+compute each ratio once per window, from five minutes to 30 days, and the
+remaining budget (`slo:api_*:error_budget_remaining`). The alerts follow the
+multiwindow, multi-burn-rate method of the Google SRE Workbook. The burn rate is
+the error ratio divided by the budget: at 1 the budget lasts exactly 30 days.
+
+| Severity | Burn rate | Long window | Short window | Budget spent before alerting |
+|----------|-----------|-------------|--------------|------------------------------|
+| critical (page) | 14.4 | 1h | 5m | 2% |
+| critical (page) | 6 | 6h | 30m | 5% |
+| warning (ticket) | 3 | 1d | 2h | 10% |
+| warning (ticket) | 1 | 3d | 6h | 10% |
+
+The long window shows the burn is significant; the short window ends the alert
+soon after the burn stops. Prometheus keeps 31 days locally so the 30-day
+windows are complete.
+
 ## Alerts
 
 Rules target client-visible symptoms and are visible in the Prometheus UI under
@@ -98,9 +126,11 @@ Rules target client-visible symptoms and are visible in the Prometheus UI under
 footprint minimal; routing to a receiver is a deployment-time concern.
 
 The rules are unit-tested in [`prometheus/alerts.test.yml`](prometheus/alerts.test.yml):
-synthetic series are fed through them and the expected alerts asserted,
-including an error ratio at low traffic, where an earlier version of
-`HighErrorRate` understated the ratio and stayed silent. CI runs the tests with
+synthetic series are fed through them and the expected alerts asserted:
+an outage at low traffic, where an earlier error-ratio rule understated the
+ratio and stayed silent, with probe traffic that must not dilute it; a page
+that clears once the burn stops; and a modest error rate sustained for a day
+that opens a ticket without paging. CI runs the tests with
 the same pinned Prometheus image Compose uses:
 
 ```bash
@@ -111,8 +141,10 @@ docker run --rm --entrypoint promtool -v "$PWD/observability/prometheus:/etc/pro
 | Alert | Condition |
 |-------|-----------|
 | `BackendDown` | Target unscrapeable for 1m |
-| `HighErrorRate` | 5xx ratio above 5% over 5m |
-| `HighRequestLatencyP95` | p95 latency above 500ms over 5m |
+| `ApiAvailabilityBudgetBurnFast` | Availability budget burning at 14.4x (1h and 5m) or 6x (6h and 30m) |
+| `ApiAvailabilityBudgetBurnSlow` | Availability budget burning at 3x (1d and 2h) or 1x (3d and 6h) |
+| `ApiLatencyBudgetBurnFast` | Latency budget burning at 14.4x (1h and 5m) or 6x (6h and 30m) |
+| `ApiLatencyBudgetBurnSlow` | Latency budget burning at 3x (1d and 2h) or 1x (3d and 6h) |
 | `EventServiceDown` | Relay or audit target unscrapeable for 1m |
 | `OutboxBacklogStale` | Oldest unpublished event older than 60s for 2m |
 | `OutboxPublishFailing` | Publish failures in each 1m window for 2m |

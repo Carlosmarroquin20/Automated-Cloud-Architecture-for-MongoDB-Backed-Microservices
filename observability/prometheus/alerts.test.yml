@@ -1,17 +1,20 @@
-# Unit tests for the alerting rules, run with `promtool test rules` in CI.
+# Unit tests for the recording and alerting rules, run with `promtool test
+# rules` in CI.
 #
-# The error-ratio cases use low traffic on purpose: a denominator clamped to
-# one request per second once understated the ratio whenever traffic fell
+# The availability cases use low traffic on purpose: a denominator clamped to
+# one request per second once understated the error ratio whenever traffic fell
 # below that rate, so a fifth of requests failing at 0.17 requests per second
-# read as 3% and never alerted. The k8s/monitoring copy of the rules is held
-# identical to this one by CI, so these tests cover both deployments.
+# read as 3% and never alerted. Probe traffic is added alongside, because the
+# objectives count API routes only and probes must not dilute them. The
+# k8s/monitoring copy of the rules is held identical to this one by CI, so
+# these tests cover both deployments.
 rule_files:
   - alerts.yml
 
 evaluation_interval: 1m
 
 tests:
-  - name: error ratio is measured exactly at low traffic
+  - name: a low-traffic outage burns the availability budget fast
     interval: 1m
     input_series:
       # 8 successes and 2 failures per minute: 0.17 req/s, 20% errors.
@@ -19,15 +22,74 @@ tests:
         values: "0+8x30"
       - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="500"}'
         values: "0+2x30"
+      - series: 'http_requests_total{job="backend",method="GET",path="/health/ready",status="200"}'
+        values: "0+600x30"
     alert_rule_test:
       - eval_time: 15m
-        alertname: HighErrorRate
+        alertname: ApiAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: api-availability
+            exp_annotations:
+              summary: The items API is burning its availability budget fast
+              description: >-
+                Server errors consume the 30-day error budget of the 99.5%
+                availability objective at six times the sustainable rate or
+                more; at this pace the budget is exhausted within five days.
+
+  # The long windows still hold the errors after they stop; the short windows
+  # end the page. The six-hour condition keeps it until its thirty-minute
+  # window no longer contains errors.
+  - name: the page clears once the burn stops
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="200"}'
+        values: "0+8x60"
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="500"}'
+        values: "0+2x20 40x40"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ApiAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: api-availability
+            exp_annotations:
+              summary: The items API is burning its availability budget fast
+              description: >-
+                Server errors consume the 30-day error budget of the 99.5%
+                availability objective at six times the sustainable rate or
+                more; at this pace the budget is exhausted within five days.
+      - eval_time: 55m
+        alertname: ApiAvailabilityBudgetBurnFast
+        exp_alerts: []
+
+  # 2% errors for a day spends the budget four times too fast: a ticket, since
+  # it stays below the six-times rate that pages.
+  - name: a modest sustained error rate opens a ticket without paging
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend",method="POST",path="/api/v1/items",status="201"}'
+        values: "0+98x1620"
+      - series: 'http_requests_total{job="backend",method="POST",path="/api/v1/items",status="500"}'
+        values: "0+2x1620"
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: ApiAvailabilityBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 26h
+        alertname: ApiAvailabilityBudgetBurnSlow
         exp_alerts:
           - exp_labels:
               severity: warning
+              slo: api-availability
             exp_annotations:
-              summary: Elevated server error rate
-              description: More than 5% of requests returned a 5xx status over five minutes.
+              summary: The items API is spending its availability budget too fast
+              description: >-
+                Server errors have consumed the error budget of the 99.5%
+                availability objective at or above the sustainable rate for one
+                to three days; the budget will not last the 30-day period.
 
   - name: low traffic without errors does not alert
     interval: 1m
@@ -36,8 +98,14 @@ tests:
         values: "0+8x30"
     alert_rule_test:
       - eval_time: 15m
-        alertname: HighErrorRate
+        alertname: ApiAvailabilityBudgetBurnFast
         exp_alerts: []
+    promql_expr_test:
+      - expr: slo:api_errors:ratio_rate5m
+        eval_time: 15m
+        exp_samples:
+          - labels: "slo:api_errors:ratio_rate5m"
+            value: 0
 
   - name: an idle service does not alert
     interval: 1m
@@ -46,8 +114,31 @@ tests:
         values: "5x30"
     alert_rule_test:
       - eval_time: 15m
-        alertname: HighErrorRate
+        alertname: ApiAvailabilityBudgetBurnFast
         exp_alerts: []
+
+  # A fifth of requests above 500ms against a 1% budget burns it twenty times
+  # too fast.
+  - name: slow responses burn the latency budget fast
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{job="backend",method="GET",path="/api/v1/items",le="0.5"}'
+        values: "0+80x30"
+      - series: 'http_request_duration_seconds_count{job="backend",method="GET",path="/api/v1/items"}'
+        values: "0+100x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiLatencyBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: api-latency
+            exp_annotations:
+              summary: The items API is burning its latency budget fast
+              description: >-
+                Requests slower than 500ms consume the 30-day error budget of
+                the 99% latency objective at six times the sustainable rate or
+                more; at this pace the budget is exhausted within five days.
 
   - name: an unscrapeable backend alerts after one minute
     interval: 1m

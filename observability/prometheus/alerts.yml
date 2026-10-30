@@ -1,4 +1,4 @@
-# Alerting rules for the microservice.
+# Recording and alerting rules for the microservice.
 #
 # Thresholds target symptoms visible to a client (availability, error ratio,
 # tail latency, saturation) rather than internal causes, so an alert maps to a
@@ -19,37 +19,178 @@ groups:
             Prometheus has failed to scrape the backend for over one minute,
             indicating the service is down or unreachable.
 
-  - name: microservice-slo
+  # Service level objectives for the items API over a rolling 30-day period:
+  # 99.5% of requests succeed without a server error, and 99% complete within
+  # 500ms. Only the versioned API routes count; probes and scrapes are not
+  # client traffic. Each ratio is recorded once per window and shared by the
+  # alerts and the SLO dashboard. Without traffic a ratio is NaN, which neither
+  # alerts nor reads as healthy; without server errors it is zero.
+  - name: slo-items-api
+    # Evaluated once a minute: the longest windows read a month of samples,
+    # and the alerts that consume these ratios gain nothing from more often.
+    interval: 1m
     rules:
-      - alert: HighErrorRate
-        # Ratio of 5xx responses over all responses across a five-minute window.
-        # The denominator is not clamped: clamping it to one request per second
-        # understated the ratio whenever traffic was lower. Without 5xx series
-        # the result is empty, and without traffic it is NaN; neither fires.
+      - record: slo:api_errors:ratio_rate5m
         expr: >-
-          sum(rate(http_requests_total{status=~"5.."}[5m]))
-          / sum(rate(http_requests_total[5m]))
-          > 0.05
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: Elevated server error rate
-          description: More than 5% of requests returned a 5xx status over five minutes.
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[5m])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[5m]))
 
-      - alert: HighRequestLatencyP95
-        # 95th-percentile request latency derived from the native histogram.
+      - record: slo:api_errors:ratio_rate30m
         expr: >-
-          histogram_quantile(
-            0.95,
-            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
-          ) > 0.5
-        for: 5m
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[30m])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[30m]))
+
+      - record: slo:api_errors:ratio_rate1h
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[1h])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[1h]))
+
+      - record: slo:api_errors:ratio_rate2h
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[2h])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[2h]))
+
+      - record: slo:api_errors:ratio_rate6h
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[6h])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[6h]))
+
+      - record: slo:api_errors:ratio_rate1d
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[1d])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[1d]))
+
+      - record: slo:api_errors:ratio_rate3d
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[3d])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[3d]))
+
+      - record: slo:api_errors:ratio_rate30d
+        expr: >-
+          (sum(rate(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}[30d])) or vector(0))
+          / sum(rate(http_requests_total{job="backend",path=~"/api/.+"}[30d]))
+
+      - record: slo:api_slow_requests:ratio_rate5m
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[5m]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[5m]))
+
+      - record: slo:api_slow_requests:ratio_rate30m
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[30m]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[30m]))
+
+      - record: slo:api_slow_requests:ratio_rate1h
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[1h]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[1h]))
+
+      - record: slo:api_slow_requests:ratio_rate2h
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[2h]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[2h]))
+
+      - record: slo:api_slow_requests:ratio_rate6h
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[6h]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[6h]))
+
+      - record: slo:api_slow_requests:ratio_rate1d
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[1d]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[1d]))
+
+      - record: slo:api_slow_requests:ratio_rate3d
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[3d]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[3d]))
+
+      - record: slo:api_slow_requests:ratio_rate30d
+        expr: >-
+          1 - sum(rate(http_request_duration_seconds_bucket{job="backend",path=~"/api/.+",le="0.5"}[30d]))
+          / sum(rate(http_request_duration_seconds_count{job="backend",path=~"/api/.+"}[30d]))
+
+      - record: slo:api_availability:error_budget_remaining
+        expr: 1 - slo:api_errors:ratio_rate30d / 0.005
+
+      - record: slo:api_latency:error_budget_remaining
+        expr: 1 - slo:api_slow_requests:ratio_rate30d / 0.01
+
+  # Multiwindow, multi-burn-rate alerts (Google SRE Workbook, chapter 5). The
+  # burn rate is the error ratio divided by the budget: at 1 the budget lasts
+  # exactly the period. Each condition requires a long window, which proves the
+  # burn is significant, and a short one, which stops the alert soon after the
+  # burn does. They replace fixed thresholds on the error ratio and on p95
+  # latency, which alerted on brief spikes and ignored slow, sustained loss.
+  - name: slo-items-api-alerts
+    rules:
+      - alert: ApiAvailabilityBudgetBurnFast
+        # 14.4x spends 2% of the 30-day budget in one hour and 6x spends 5% in
+        # six hours: both exhaust it within days, so they page.
+        expr: >-
+          (slo:api_errors:ratio_rate1h > 14.4 * 0.005 and slo:api_errors:ratio_rate5m > 14.4 * 0.005)
+          or
+          (slo:api_errors:ratio_rate6h > 6 * 0.005 and slo:api_errors:ratio_rate30m > 6 * 0.005)
+        labels:
+          severity: critical
+          slo: api-availability
+        annotations:
+          summary: The items API is burning its availability budget fast
+          description: >-
+            Server errors consume the 30-day error budget of the 99.5%
+            availability objective at six times the sustainable rate or more; at this pace the budget
+            is exhausted within five days.
+
+      - alert: ApiAvailabilityBudgetBurnSlow
+        # 3x spends 10% of the budget in a day and 1x spends it exactly over
+        # the period: neither is urgent, both exhaust the budget if left.
+        expr: >-
+          (slo:api_errors:ratio_rate1d > 3 * 0.005 and slo:api_errors:ratio_rate2h > 3 * 0.005)
+          or
+          (slo:api_errors:ratio_rate3d > 1 * 0.005 and slo:api_errors:ratio_rate6h > 1 * 0.005)
         labels:
           severity: warning
+          slo: api-availability
         annotations:
-          summary: Elevated p95 request latency
-          description: The 95th-percentile request latency exceeded 500ms over five minutes.
+          summary: The items API is spending its availability budget too fast
+          description: >-
+            Server errors have consumed the error budget of the 99.5%
+            availability objective at or above the sustainable rate for one to three days; the budget
+            will not last the 30-day period.
+
+      - alert: ApiLatencyBudgetBurnFast
+        # 14.4x spends 2% of the 30-day budget in one hour and 6x spends 5% in
+        # six hours: both exhaust it within days, so they page.
+        expr: >-
+          (slo:api_slow_requests:ratio_rate1h > 14.4 * 0.01 and slo:api_slow_requests:ratio_rate5m > 14.4 * 0.01)
+          or
+          (slo:api_slow_requests:ratio_rate6h > 6 * 0.01 and slo:api_slow_requests:ratio_rate30m > 6 * 0.01)
+        labels:
+          severity: critical
+          slo: api-latency
+        annotations:
+          summary: The items API is burning its latency budget fast
+          description: >-
+            Requests slower than 500ms consume the 30-day error budget of
+            the 99% latency objective at six times the sustainable rate or more; at this pace the budget
+            is exhausted within five days.
+
+      - alert: ApiLatencyBudgetBurnSlow
+        # 3x spends 10% of the budget in a day and 1x spends it exactly over
+        # the period: neither is urgent, both exhaust the budget if left.
+        expr: >-
+          (slo:api_slow_requests:ratio_rate1d > 3 * 0.01 and slo:api_slow_requests:ratio_rate2h > 3 * 0.01)
+          or
+          (slo:api_slow_requests:ratio_rate3d > 1 * 0.01 and slo:api_slow_requests:ratio_rate6h > 1 * 0.01)
+        labels:
+          severity: warning
+          slo: api-latency
+        annotations:
+          summary: The items API is spending its latency budget too fast
+          description: >-
+            Requests slower than 500ms have consumed the error budget of the
+            99% latency objective at or above the sustainable rate for one to three days; the budget
+            will not last the 30-day period.
 
   # The event pipeline fails silently from a client's point of view: writes keep
   # succeeding while history falls behind. These rules therefore watch the

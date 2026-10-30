@@ -36,7 +36,9 @@ spec:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
             # Short local retention; this plane is for live inspection, not
-            # long-term storage, keeping the footprint small.
+            # long-term storage, keeping the footprint small. The 30-day SLO
+            # windows therefore cover only the retained day here; a production
+            # plane keeps at least 31 days or writes to remote storage.
             - --storage.tsdb.retention.time=1d
             - --web.enable-lifecycle
           ports:

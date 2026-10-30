@@ -168,6 +168,18 @@ the stream, and unresolved dead letters.
 
 ![Grafana Event Pipeline dashboard under load](docs/images/grafana-event-pipeline.png)
 
+**Service Level Objectives under a database outage.** MongoDB was stopped for
+five minutes under open-loop traffic of five requests per second. Every request
+was answered within the write deadline (writes refused with 503 in at most 10.5
+seconds, reads in 6.1), the burn rates crossed the paging thresholds, and both
+fast burn alerts fired 3 minutes 50 seconds after the outage began. The budget
+figures reflect a few hours of local history, over which the outage dominates;
+within a month of steady traffic it would spend about 2% of the availability
+budget ([ADR-0030](docs/adr/README.md#adr-0030--service-level-objectives-and-burn-rate-alerting),
+[ADR-0031](docs/adr/README.md#adr-0031--bounded-writes-during-a-database-outage)).
+
+![Grafana Service Level Objectives dashboard during a five-minute database outage](docs/images/grafana-slo.png)
+
 **Microservice Overview dashboard.** Request rate by status, latency
 percentiles, error ratio, saturation, process resources, and the running build.
 
@@ -270,10 +282,10 @@ Every layer ships with automated verification.
 
 | Component | Gates |
 |-----------|-------|
-| Backend | `ruff check` · `mypy --strict` (50 files) · `pytest` (62 tests) · OpenAPI drift check · AsyncAPI contract tests |
+| Backend | `ruff check` · `mypy --strict` (50 files) · `pytest` (67 tests) · OpenAPI drift check · AsyncAPI contract tests |
 | Audit service | `ruff check` · `mypy --strict` (18 files) · `pytest` (36 tests) |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
-| Monitoring | `promtool check config` for both Prometheus configurations · `promtool test rules` unit tests for the alerts · dashboard and rule copies kept identical |
+| Monitoring | `promtool check config` for both Prometheus configurations · `promtool test rules` unit tests for the SLO and pipeline alerts · dashboard and rule copies kept identical |
 
 The frontend production bundle is approximately 6.6 kB gzipped (JavaScript and
 CSS combined). All test suites are hermetic and require no database or broker.
@@ -291,7 +303,7 @@ ephemeral cluster.
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed; writes refused with 503 within seconds while the database is down |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface
@@ -312,14 +324,18 @@ configuration deploys to Kubernetes as the `k8s/monitoring` overlay.
 docker compose --profile observability up --build
 ```
 
-Grafana (http://localhost:3000) provisions two dashboards. **Microservice
+Grafana (http://localhost:3000) provisions three dashboards. **Microservice
 Overview** covers request throughput, error ratio, latency percentiles
 (p50/p95/p99), in-flight saturation, and process resource usage. **Event
 Pipeline** covers publication and consumption rates, consumption outcomes,
-outbox backlog age, broker duplicates, and the consumer's binding to the stream.
-Prometheus (http://localhost:9090) evaluates availability and SLO rules for the
-API and progress rules for the event pipeline, which fails silently from a
-client's point of view. All tools are open-source and run at no cost. See
+outbox backlog age, broker duplicates, the consumer's binding to the stream,
+and dead letters. **Service Level Objectives** covers the API's two 30-day
+objectives (99.5% of requests without a server error, 99% within 500ms), their
+remaining error budgets, and burn rates. Prometheus (http://localhost:9090)
+records the objectives' ratios and alerts on them with multiwindow,
+multi-burn-rate rules that page on a fast burn and open a ticket on a slow one,
+and evaluates progress rules for the event pipeline, which fails silently from
+a client's point of view. All tools are open-source and run at no cost. See
 [`observability/`](observability/) for configuration and dashboards.
 
 The three observability signals are complete: alongside metrics and structured
