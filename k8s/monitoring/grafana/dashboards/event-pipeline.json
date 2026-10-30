@@ -173,7 +173,7 @@
       "title": "Consumer bound to stream",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 5,
         "x": 6,
         "y": 0
       },
@@ -247,7 +247,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 10,
+        "x": 11,
         "y": 0
       },
       "datasource": {
@@ -305,8 +305,8 @@
       "title": "Dead letters",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 14,
+        "w": 3,
+        "x": 15,
         "y": 0
       },
       "datasource": {

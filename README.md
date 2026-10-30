@@ -163,8 +163,8 @@ trace.
 ![Jaeger trace of an item update spanning the items API, the outbox relay, and the audit service](docs/images/jaeger-trace.png)
 
 **Event Pipeline dashboard.** Publication and consumption rates by event type
-and outcome, outbox backlog age, broker duplicates, and the consumer's binding
-to the stream.
+and outcome, outbox backlog age, broker duplicates, the consumer's binding to
+the stream, and unresolved dead letters.
 
 ![Grafana Event Pipeline dashboard under load](docs/images/grafana-event-pipeline.png)
 
