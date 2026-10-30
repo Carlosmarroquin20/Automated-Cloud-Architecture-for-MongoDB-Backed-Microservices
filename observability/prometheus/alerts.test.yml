@@ -241,3 +241,112 @@ tests:
       - eval_time: 5m
         alertname: AuditDeadLetters
         exp_alerts: []
+
+  # The case the edge objective exists for: every backend pod is withdrawn, the
+  # proxy answers alone, and the backend's counters stop moving. The service-side
+  # objective is silent and only the probes see the outage.
+  - name: an outage the backend never sees pages through the probes alone
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="edge-probe",probe="items-api"}'
+        values: "1x60 0x30"
+      - series: 'http_requests_total{job="backend",method="GET",path="/api/v1/items",status="200"}'
+        values: "0+8x60 480x30"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: ApiEdgeAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: api-edge-availability
+            exp_annotations:
+              summary: Probes through the proxy are burning the availability budget fast
+              description: >-
+                Synthetic requests to the items API through the reverse proxy are
+                failing at six times the sustainable rate or more. If the service-side
+                burn alert is silent, the requests are not reaching the backend.
+      - eval_time: 80m
+        alertname: ApiAvailabilityBudgetBurnFast
+        exp_alerts: []
+
+  - name: the edge page clears once the probes recover
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="edge-probe",probe="items-api"}'
+        values: "1x60 0x20 1x60"
+    alert_rule_test:
+      - eval_time: 75m
+        alertname: ApiEdgeAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: api-edge-availability
+            exp_annotations:
+              summary: Probes through the proxy are burning the availability budget fast
+              description: >-
+                Synthetic requests to the items API through the reverse proxy are
+                failing at six times the sustainable rate or more. If the service-side
+                burn alert is silent, the requests are not reaching the backend.
+      - eval_time: 125m
+        alertname: ApiEdgeAvailabilityBudgetBurnFast
+        exp_alerts: []
+
+  # One lost probe in hours of history spends almost nothing, though it dominates
+  # the short window for five minutes.
+  - name: a single failed probe does not page
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="edge-probe",probe="items-api"}'
+        values: "1x400 0 1x60"
+    alert_rule_test:
+      - eval_time: 403m
+        alertname: ApiEdgeAvailabilityBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 403m
+        alertname: ApiEdgeAvailabilityBudgetBurnSlow
+        exp_alerts: []
+
+  - name: a failing audit probe alerts after two minutes
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="edge-probe",probe="audit-api",instance="http://frontend:8080/audit"}'
+        values: "1 1 0 0 0 0 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: EdgeProbeFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: EdgeProbeFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: edge-probe
+              probe: audit-api
+              instance: http://frontend:8080/audit
+            exp_annotations:
+              summary: "The audit-api probe is failing"
+              description: >-
+                Requests to http://frontend:8080/audit through the reverse proxy have
+                been failing for two minutes.
+      - eval_time: 6m
+        alertname: EdgeProbeFailing
+        exp_alerts: []
+
+  - name: an unreachable prober alerts
+    interval: 1m
+    input_series:
+      - series: 'up{job="edge-probe",probe="items-api"}'
+        values: "1 1 0 0 0 0"
+      - series: 'up{job="edge-probe",probe="web"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: EdgeProberDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: The synthetic prober is not reachable
+              description: >-
+                Prometheus cannot reach the blackbox exporter, so the edge objective
+                is not being measured.

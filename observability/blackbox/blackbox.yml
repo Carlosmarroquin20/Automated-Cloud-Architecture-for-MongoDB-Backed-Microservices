@@ -1,0 +1,19 @@
+# Synthetic probes through the reverse proxy.
+#
+# Service metrics only count requests that reach the service. A probe sends a
+# request where a client does, so it also sees what the proxy answers by itself:
+# a 502 while no backend pod is ready, or a 504 from a backend that stopped
+# responding.
+modules:
+  http_2xx:
+    prober: http
+    # Below the 10-second scrape timeout, so a hung endpoint is reported as a
+    # failed probe rather than as a failed scrape of the prober. A read refused
+    # during a database outage is answered within about six seconds.
+    timeout: 8s
+    http:
+      method: GET
+      preferred_ip_protocol: ip4
+      valid_status_codes: [200]
+      # A redirect would hide what the endpoint itself answered.
+      follow_redirects: false

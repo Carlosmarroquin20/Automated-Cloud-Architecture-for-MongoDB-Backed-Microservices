@@ -186,6 +186,22 @@ services:
       - "9090:9090"
     depends_on:
       - backend
+      - blackbox-exporter
+    networks:
+      - internal
+
+  # Probes the frontend's reverse proxy, the path a client's request takes.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.29.0@sha256:9613f2884689b6fad9f1939f6a3b0388c93a022cfaededb19545b329b5c83dea
+    profiles: ["observability"]
+    restart: unless-stopped
+    # The image declares no user and would otherwise run as root.
+    user: "65534:65534"
+    read_only: true
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./observability/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
     networks:
       - internal
 

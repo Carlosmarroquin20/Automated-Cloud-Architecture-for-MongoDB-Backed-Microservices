@@ -115,6 +115,41 @@ groups:
       - record: slo:api_latency:error_budget_remaining
         expr: 1 - slo:api_slow_requests:ratio_rate30d / 0.01
 
+  # The same availability objective measured from outside the service. The ratios
+  # above count only requests that reach the backend, so they cannot see a proxy
+  # answering alone while every pod is withdrawn; a failed probe counts wherever
+  # the failure happened. Probes arrive at a fixed rate, so these ratios stay
+  # defined while the service is idle.
+  - name: slo-items-api-edge
+    interval: 1m
+    rules:
+      - record: slo:api_edge_errors:ratio_rate5m
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[5m]))
+
+      - record: slo:api_edge_errors:ratio_rate30m
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[30m]))
+
+      - record: slo:api_edge_errors:ratio_rate1h
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[1h]))
+
+      - record: slo:api_edge_errors:ratio_rate2h
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[2h]))
+
+      - record: slo:api_edge_errors:ratio_rate6h
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[6h]))
+
+      - record: slo:api_edge_errors:ratio_rate1d
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[1d]))
+
+      - record: slo:api_edge_errors:ratio_rate3d
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[3d]))
+
+      - record: slo:api_edge_errors:ratio_rate30d
+        expr: 1 - avg(avg_over_time(probe_success{job="edge-probe",probe="items-api"}[30d]))
+
+      - record: slo:api_edge_availability:error_budget_remaining
+        expr: 1 - slo:api_edge_errors:ratio_rate30d / 0.005
+
   # Multiwindow, multi-burn-rate alerts (Google SRE Workbook, chapter 5). The
   # burn rate is the error ratio divided by the budget: at 1 the budget lasts
   # exactly the period. Each condition requires a long window, which proves the
@@ -190,6 +225,64 @@ groups:
             Requests slower than 500ms have consumed the error budget of the
             99% latency objective at or above the sustainable rate for one to three days; the budget
             will not last the 30-day period.
+
+  - name: slo-items-api-edge-alerts
+    rules:
+      - alert: ApiEdgeAvailabilityBudgetBurnFast
+        # The thresholds of the service-side alerts. Both fire when the backend
+        # answers with errors; only this one fires when no request reaches it.
+        expr: >-
+          (slo:api_edge_errors:ratio_rate1h > 14.4 * 0.005 and slo:api_edge_errors:ratio_rate5m > 14.4 * 0.005)
+          or
+          (slo:api_edge_errors:ratio_rate6h > 6 * 0.005 and slo:api_edge_errors:ratio_rate30m > 6 * 0.005)
+        labels:
+          severity: critical
+          slo: api-edge-availability
+        annotations:
+          summary: Probes through the proxy are burning the availability budget fast
+          description: >-
+            Synthetic requests to the items API through the reverse proxy are
+            failing at six times the sustainable rate or more. If the service-side
+            burn alert is silent, the requests are not reaching the backend.
+
+      - alert: ApiEdgeAvailabilityBudgetBurnSlow
+        expr: >-
+          (slo:api_edge_errors:ratio_rate1d > 3 * 0.005 and slo:api_edge_errors:ratio_rate2h > 3 * 0.005)
+          or
+          (slo:api_edge_errors:ratio_rate3d > 1 * 0.005 and slo:api_edge_errors:ratio_rate6h > 1 * 0.005)
+        labels:
+          severity: warning
+          slo: api-edge-availability
+        annotations:
+          summary: Probes through the proxy are spending the availability budget too fast
+          description: >-
+            Synthetic requests to the items API through the reverse proxy have
+            failed at or above the sustainable rate for one to three days.
+
+      - alert: EdgeProbeFailing
+        # The items API has its objective; the other endpoints alert directly.
+        expr: probe_success{job="edge-probe",probe!="items-api"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.probe }} probe is failing"
+          description: >-
+            Requests to {{ $labels.instance }} through the reverse proxy have
+            been failing for two minutes.
+
+      - alert: EdgeProberDown
+        # Without the prober no probe fails and the edge alerts stay silent, so
+        # its own absence has to alert.
+        expr: min(up{job="edge-probe"}) == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: The synthetic prober is not reachable
+          description: >-
+            Prometheus cannot reach the blackbox exporter, so the edge objective
+            is not being measured.
 
   # The event pipeline fails silently from a client's point of view: writes keep
   # succeeding while history falls behind. These rules therefore watch the

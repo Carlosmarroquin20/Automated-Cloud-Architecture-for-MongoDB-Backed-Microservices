@@ -274,12 +274,19 @@ jobs:
             -v "${PWD}/observability/prometheus:/etc/prometheus:ro" \
             "${PROMETHEUS_IMAGE}" test rules /etc/prometheus/alerts.test.yml
 
+      - name: Validate the synthetic prober configuration
+        run: |
+          docker run --rm -v "${PWD}/observability/blackbox:/etc/blackbox:ro" \
+            prom/blackbox-exporter:v0.29.0@sha256:9613f2884689b6fad9f1939f6a3b0388c93a022cfaededb19545b329b5c83dea \
+            --config.file=/etc/blackbox/blackbox.yml --config.check
+
       # Kustomize cannot read outside its root, so the cluster carries copies of
       # the Compose dashboards and rules. The copies must stay identical; rule
       # files are compared after parsing because their comments differ.
       - name: Verify monitoring copies match
         run: |
           diff -r observability/grafana/dashboards k8s/monitoring/grafana/dashboards
+          diff observability/blackbox/blackbox.yml k8s/monitoring/blackbox/blackbox.yml
           diff <(yq -o=json '.' observability/prometheus/alerts.yml) \
             <(yq -o=json '.' k8s/monitoring/prometheus/alerts.yml)
 
@@ -820,6 +827,52 @@ jobs:
             and .consumer.num_ack_pending == 0
           ' >/dev/null || { echo "::error::dead letters or unacknowledged events remain"; exit 1; }
 
+      # The monitoring plane runs for real, under the same Pod Security profile
+      # and admission policies as the application. It is deployed after the
+      # event pipeline checks so that its synthetic requests cannot affect them.
+      - name: Deploy the monitoring plane
+        run: |
+          kubectl apply -k k8s/monitoring
+          for workload in prometheus grafana blackbox-exporter; do
+            kubectl -n monitoring rollout status "deployment/${workload}" --timeout=240s
+          done
+
+      # Discovery, RBAC, and the NetworkPolicies are only proven by scraping
+      # through them, so every service and probe must report as healthy.
+      - name: Verify the monitoring plane
+        run: |
+          kubectl -n monitoring port-forward svc/prometheus 39090:9090 > monitoring-port-forward.log 2>&1 &
+          kubectl -n monitoring port-forward svc/grafana 33000:3000 >> monitoring-port-forward.log 2>&1 &
+          sleep 3
+          prom() {
+            curl -fsS http://localhost:39090/api/v1/query --data-urlencode "query=$1" \
+              | jq -r '.data.result[0].value[1] // "none"'
+          }
+          healthy=""
+          for _ in $(seq 1 40); do
+            if [ "$(prom 'min(up{job=~"backend|outbox-relay|audit"})')" = "1" ] \
+              && [ "$(prom 'count(count by (job) (up{job=~"backend|outbox-relay|audit"}))')" = "3" ] \
+              && [ "$(prom 'count(probe_success{job="edge-probe"})')" = "3" ] \
+              && [ "$(prom 'min(probe_success{job="edge-probe"})')" = "1" ]; then
+              healthy="yes"
+              break
+            fi
+            sleep 5
+          done
+          curl -fsS http://localhost:39090/api/v1/query --data-urlencode 'query=up' \
+            | jq -r '.data.result[] | "\(.metric.job) \(.metric.instance) up=\(.value[1])"' | sort
+          curl -fsS http://localhost:39090/api/v1/query --data-urlencode 'query=probe_http_status_code' \
+            | jq -r '.data.result[] | "\(.metric.probe) status=\(.value[1])"' | sort
+          [ -n "${healthy}" ] || { echo "::error::the monitoring plane did not report every target as healthy"; exit 1; }
+
+          curl -fsS http://localhost:39090/api/v1/rules \
+            | jq -e '[.data.groups[].rules[].health] | all(. != "err")' >/dev/null \
+            || { echo "::error::a Prometheus rule failed to evaluate"; exit 1; }
+          dashboards="$(curl -fsS 'http://localhost:33000/api/search?type=dash-db' | jq -r '[.[].title] | sort | join(", ")')"
+          echo "Grafana dashboards: ${dashboards}"
+          [ "${dashboards}" = "Event Pipeline, Microservice Overview, Service Level Objectives" ] \
+            || { echo "::error::Grafana did not provision the expected dashboards"; exit 1; }
+
       # Failure injection: the database is removed. A write must be refused
       # with 503 and Retry-After well inside the proxy's 60-second timeout,
       # rather than waiting out the driver's 120-second transaction retries
@@ -847,6 +900,40 @@ jobs:
           jq -e '.error.code == "service_unavailable"' response.json >/dev/null \
             || { echo "::error::unexpected error envelope"; exit 1; }
 
+          # Readiness now withdraws every backend pod, so the proxy answers alone.
+          # The backend's own counters must stop moving while the probes keep
+          # failing: the blind spot of a service-side indicator, seen from outside.
+          kubectl -n monitoring port-forward svc/prometheus 39091:9090 >> database-outage-port-forward.log 2>&1 &
+          sleep 3
+          prom() {
+            curl -fsS http://localhost:39091/api/v1/query --data-urlencode "query=$1" \
+              | jq -r '.data.result[0].value[1] // "none"'
+          }
+          errors='sum(http_requests_total{job="backend",path=~"/api/.+",status=~"5.."}) or vector(0)'
+          withdrawn=""
+          for _ in $(seq 1 36); do
+            ready="$(kubectl -n "$NAMESPACE" get deployment backend -o jsonpath='{.status.readyReplicas}')"
+            status="$(prom 'probe_http_status_code{job="edge-probe",probe="items-api"}')"
+            echo "ready backend pods: ${ready:-0}, items API probe status: ${status}"
+            if [ -z "${ready}" ] && [ "${status}" != "200" ] && [ "${status}" != "503" ] && [ "${status}" != "none" ]; then
+              withdrawn="yes"
+              break
+            fi
+            sleep 5
+          done
+          [ -n "${withdrawn}" ] || { echo "::error::the probe never saw the proxy answering alone"; exit 1; }
+          # Two scrape intervals let the last requests the backend answered settle.
+          sleep 30
+          before="$(prom "${errors}")"
+          sleep 45
+          after="$(prom "${errors}")"
+          failed="$(prom 'max_over_time(probe_success{job="edge-probe",probe="items-api"}[45s])')"
+          echo "backend 5xx counter: ${before} -> ${after}; best probe result in that time: ${failed}"
+          [ "${before}" = "${after}" ] \
+            || { echo "::error::the backend still counted errors while it was withdrawn"; exit 1; }
+          [ "${failed}" = "0" ] \
+            || { echo "::error::a probe succeeded while no backend pod was ready"; exit 1; }
+
           kubectl -n "$NAMESPACE" scale statefulset/mongo --replicas=1
           kubectl -n "$NAMESPACE" rollout status statefulset/mongo --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=240s
@@ -855,6 +942,12 @@ jobs:
           count="$(kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh --quiet --eval \
             'print(db.getSiblingDB("microservice").items.countDocuments({name: "during-outage"}))')"
           [ "${count}" = "0" ] || { echo "::error::the refused write was committed (${count})"; exit 1; }
+          recovered=""
+          for _ in $(seq 1 24); do
+            [ "$(prom 'min(probe_success{job="edge-probe"})')" = "1" ] && { recovered="yes"; break; }
+            sleep 5
+          done
+          [ -n "${recovered}" ] || { echo "::error::the probes did not recover with the database"; exit 1; }
 
       - name: Collect diagnostics
         if: failure()
@@ -867,7 +960,13 @@ jobs:
             kubectl -n "$NAMESPACE" logs "$pod" --all-containers --previous --tail=40 2>/dev/null || true
           done
           kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
-          cat port-forward.log jaeger-port-forward.log outage-port-forward.log dead-letter-port-forward.log database-outage-port-forward.log 2>/dev/null || true
+          kubectl -n monitoring get pods,svc,endpoints -o wide || true
+          kubectl -n monitoring get events --sort-by=.lastTimestamp || true
+          for pod in $(kubectl -n monitoring get pods -o name 2>/dev/null); do
+            echo "===== logs: $pod"
+            kubectl -n monitoring logs "$pod" --all-containers --tail=60 || true
+          done
+          cat port-forward.log jaeger-port-forward.log outage-port-forward.log dead-letter-port-forward.log database-outage-port-forward.log monitoring-port-forward.log 2>/dev/null || true
           # A condensed view is also emitted as annotations, which remain readable
           # on the run page and through the API without downloading the logs.
           kubectl -n "$NAMESPACE" get pods --no-headers 2>/dev/null | while read -r line; do
@@ -896,6 +995,8 @@ jobs:
             echo "audit database refused captured as a dead letter and replayed into the history,"
             echo "writes refused with 503 within seconds while the database was down, and"
             echo "non-compliant workloads refused by Pod Security Admission and admission policies."
+            echo "The monitoring plane also ran: every target scraped, and the synthetic probes saw"
+            echo "the proxy answering alone while the backend's own counters stood still."
             echo
             echo '```'
             kubectl -n "$NAMESPACE" get pods -o wide 2>/dev/null || echo "cluster unavailable"

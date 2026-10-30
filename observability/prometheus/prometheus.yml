@@ -43,6 +43,33 @@ scrape_configs:
         labels:
           service: audit
 
+  # Synthetic probes through the reverse proxy, the path a client's request
+  # takes. Failures the proxy answers itself never reach service metrics.
+  # Prometheus scrapes the prober, which performs the request named by the
+  # `target` parameter; the probed URL becomes the instance label.
+  - job_name: edge-probe
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["http://frontend:8080/api/v1/items?limit=1"]
+        labels:
+          probe: items-api
+      - targets: ["http://frontend:8080/api/v1/audit/items/000000000000000000000000/events?limit=1"]
+        labels:
+          probe: audit-api
+      - targets: ["http://frontend:8080/"]
+        labels:
+          probe: web
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
   # Self-monitoring so the monitoring plane's own health is observable.
   - job_name: prometheus
     static_configs:
