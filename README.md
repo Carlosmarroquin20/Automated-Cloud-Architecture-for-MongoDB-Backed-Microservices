@@ -217,7 +217,7 @@ behind the same origin.
 ├── .github/              # CI/CD pipelines and dependency automation
 ├── terraform/            # Infrastructure as Code (modular AWS)
 ├── k8s/                  # Kubernetes manifests (Kustomize base + overlays) and admission policies
-├── observability/        # Prometheus config + Grafana dashboards
+├── observability/        # Prometheus config, synthetic prober, Grafana dashboards
 ├── docs/                 # ADRs, C4 architecture, API and event contracts, screenshots
 ├── scripts/              # End-to-end smoke test
 ├── docker-compose.yml    # Local multi-service orchestration
@@ -304,7 +304,7 @@ ephemeral cluster.
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed; writes refused with 503 within seconds while the database is down; non-compliant workloads refused by Pod Security Admission and the admission policies |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed; writes refused with 503 within seconds while the database is down; non-compliant workloads refused by Pod Security Admission and the admission policies; monitoring plane deployed and every target scraped; probes failing while the backend's counters stand still, with the proxy answering 502 within seconds |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface
@@ -332,7 +332,9 @@ Pipeline** covers publication and consumption rates, consumption outcomes,
 outbox backlog age, broker duplicates, the consumer's binding to the stream,
 and dead letters. **Service Level Objectives** covers the API's two 30-day
 objectives (99.5% of requests without a server error, 99% within 500ms), their
-remaining error budgets, and burn rates. Prometheus (http://localhost:9090)
+remaining error budgets, and burn rates, plus availability measured from outside
+by synthetic probes through the reverse proxy, which also sees requests that never
+reach the backend. Prometheus (http://localhost:9090)
 records the objectives' ratios and alerts on them with multiwindow,
 multi-burn-rate rules that page on a fast burn and open a ticket on a slow one,
 and evaluates progress rules for the event pipeline, which fails silently from

@@ -874,7 +874,7 @@ jobs:
             || { echo "::error::Grafana did not provision the expected dashboards"; exit 1; }
 
       # Failure injection: the database is removed. A write must be refused
-      # with 503 and Retry-After well inside the proxy's 60-second timeout,
+      # with 503 and Retry-After well inside the proxy's 30-second timeout,
       # rather than waiting out the driver's 120-second transaction retries
       # and committing after the client has given up. The request goes to a
       # backend pod directly: readiness withdraws the pods from the Service

@@ -1,7 +1,9 @@
 # Monitoring Overlay
 
 An in-cluster monitoring plane — Prometheus for collection and alerting, Grafana
-for visualization — deployed to a dedicated `monitoring` namespace. It reuses the
+for visualization, a blackbox exporter for synthetic probes — deployed to a
+dedicated `monitoring` namespace. CI deploys it to the ephemeral cluster and checks
+that every service and probe scrapes healthy. It reuses the
 metrics the services already expose and the same dashboards and alert rules as
 the Compose stack under [`observability/`](../../observability). CI fails if the
 copies here drift from those sources.
@@ -24,6 +26,10 @@ k8s/monitoring/
 │   │   ├── microservice-overview.json
 │   │   ├── event-pipeline.json
 │   │   └── service-level-objectives.json
+│   ├── deployment.yaml
+│   └── service.yaml
+├── blackbox/
+│   ├── blackbox.yml         # Synthetic prober configuration
 │   ├── deployment.yaml
 │   └── service.yaml
 └── kustomization.yaml
@@ -63,8 +69,8 @@ kubectl -n monitoring port-forward svc/grafana 3000:3000    # http://localhost:3
 kubectl -n monitoring port-forward svc/prometheus 9090:9090 # http://localhost:9090
 ```
 
-Grafana provisions the **Microservice Overview** and **Event Pipeline**
-dashboards with anonymous access; Prometheus exposes its targets and firing
+Grafana provisions the **Microservice Overview**, **Event Pipeline**, and
+**Service Level Objectives** dashboards with anonymous access; Prometheus exposes its targets and firing
 alerts. Both stores
 are ephemeral (`emptyDir`), sized for live inspection rather than retention.
 

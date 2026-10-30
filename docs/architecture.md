@@ -57,7 +57,7 @@ C4Container
     Container(relay, "Outbox relay", "Python worker, same image as the API", "Publishes committed outbox events, oldest first")
     ContainerQueue(nats, "NATS JetStream", "NATS 2.15", "Stream ITEMS: items.>, file storage, 7-day retention, deduplication")
     Container(audit, "Audit service", "Python, FastAPI, nats-py", "Consumes item events idempotently; serves item history")
-    Container(obs, "Observability", "Prometheus, Grafana, Jaeger", "Metrics, alerts, dashboards, traces")
+    Container(obs, "Observability", "Prometheus, Grafana, Jaeger, blackbox exporter", "Metrics, alerts, dashboards, traces, synthetic probes through the proxy")
   }
 
   System_Boundary(atlas, "MongoDB Atlas (M0 replica set, TLS)") {

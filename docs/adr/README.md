@@ -42,6 +42,7 @@ looks the way it does, not merely *what* it contains.
 | 0030 | Service level objectives and burn-rate alerting | Accepted |
 | 0031 | Bounded writes during a database outage | Accepted |
 | 0032 | Admission policies enforced by the API server | Accepted |
+| 0033 | Availability measured from outside the service | Accepted |
 
 ---
 
@@ -622,8 +623,8 @@ until the first failed response, up to a minute for the once-a-minute recording,
 and the time for the one-hour ratio to cross 14.4 times the budget. The
 indicator is measured at the service, so a request that never reaches it is not
 counted: in Kubernetes, readiness withdraws the pods while the database is down
-and the ingress answers instead. Measuring at the edge needs per-status metrics
-from the proxy or a synthetic probe, a follow-up. The in-cluster Prometheus
+and the proxy answers instead; ADR-0033 closes this gap with synthetic probes. The
+in-cluster Prometheus
 keeps one day, so its 30-day windows cover that day only. Over a short local
 history an incident dominates the 30-day ratios; the same outage within a month
 of steady traffic would spend about 2% of the availability budget.
@@ -696,5 +697,42 @@ project's own images are exempt from digest pinning, because the pipeline that
 deploys them builds them from the same commit; a production overlay would
 promote them by digest. Policies apply only to the project's namespaces, so
 cluster components are unaffected.
+
+**Status.** Accepted (2026-10-30).
+
+## ADR-0033 — Availability measured from outside the service
+
+**Context.** The availability objective (ADR-0030) reads the backend's own
+counters, so a request that never reaches the backend is not counted. While the
+database is down, readiness withdraws every backend pod and the reverse proxy
+answers alone: the outage clients experience leaves the indicator flat. The
+proxy, nginx without a metrics module, exposes no per-status counters to read
+instead.
+
+**Decision.** A blackbox exporter sends a read through the reverse proxy every 15
+seconds to the items API, the audit API, and the web client. The items API's
+`probe_success` feeds a second availability objective with the same 99.5% target
+and burn-rate thresholds, while the other endpoints alert directly and the prober's
+own absence alerts as well, since a missing prober would otherwise silence every
+edge alert. The service-side objective stays: it measures all real traffic,
+including writes, where a probe samples a single read. The monitoring plane, until
+now only rendered and validated, is deployed in the CI cluster, because these
+probes are only proven by running them.
+
+**Consequences.** CI removes the database and asserts the backend's 5xx counter
+stands still while every probe fails, which shows the blind spot directly and the
+probes seeing through it. Running them also found a defect no service-side signal
+could reveal: the proxy set no timeouts, so with no backend pod ready, a client
+waited on a dropped connection for nginx's 60-second default and then received a
+bare 504. The proxy now gives up on a connection after 3 seconds and on a response
+after 30, above the backend's own deadlines, and answers 502 with the standard
+error envelope and `Retry-After`: 3.0 seconds for a dropped connection, 8
+milliseconds for a refused one, and 30 seconds for an upstream that never answers.
+The status stays 502 so an operator can tell the proxy answered alone. Both alert
+families fire when the backend answers with errors; without an Alertmanager locally
+they are not deduplicated. A single probe has coarse resolution, four samples a
+minute, and one lost probe on a stack with little history can briefly exceed the
+short and long windows at once. The probes add about four reads a minute to the
+service-side indicators, which also keeps them defined while the service is idle.
 
 **Status.** Accepted (2026-10-30).

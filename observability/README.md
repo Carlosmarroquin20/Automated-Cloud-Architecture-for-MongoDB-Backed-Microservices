@@ -9,6 +9,8 @@ stores traces. All tools are open-source and run locally at no cost.
 
 ```
 observability/
+├── blackbox/
+│   └── blackbox.yml       # Synthetic prober configuration
 ├── prometheus/
 │   ├── prometheus.yml     # Scrape config (three services + self) and rule wiring
 │   ├── alerts.yml         # SLO recordings, burn-rate, availability, and event-pipeline rules
@@ -119,6 +121,27 @@ The long window shows the burn is significant; the short window ends the alert
 soon after the burn stops. Prometheus keeps 31 days locally so the 30-day
 windows are complete.
 
+### Measured from outside
+
+The indicators above come from the backend's own counters, so they cannot see a
+request that never reaches it: while readiness withdraws every pod, the reverse
+proxy answers alone and the backend records nothing. A blackbox exporter therefore
+sends a request through the proxy every 15 seconds to the items API, the audit API,
+and the web client. `probe_success` for the items API feeds a third objective,
+99.5% of probes succeeding, with the same budget and burn-rate thresholds
+(`slo:api_edge_errors:ratio_rate*`, `ApiEdgeAvailabilityBudgetBurn*`).
+
+| Service-side alert | Edge alert | Meaning |
+|--------------------|------------|---------|
+| Firing | Firing | The backend answers with errors |
+| Silent | Firing | Requests are not reaching the backend |
+| Firing | Silent | Failures on routes or methods the read-only probe does not exercise |
+
+The probes count as traffic in the service-side indicators, about four requests a
+minute. That keeps those ratios defined while the service is idle. Because they
+are reads, they do not exercise the write path, which only the service-side
+indicators cover.
+
 ## Alerts
 
 Rules target client-visible symptoms and are visible in the Prometheus UI under
@@ -152,6 +175,10 @@ docker run --rm --entrypoint promtool -v "$PWD/observability/prometheus:/etc/pro
 | `AuditEventsRetrying` | Events redelivered after storage failures for 5m |
 | `AuditEventsRejected` | Any malformed event terminated in the last 15m |
 | `AuditDeadLetters` | Any dead letter not yet replayed or discarded |
+| `ApiEdgeAvailabilityBudgetBurnFast` | Probes failing at 14.4x (1h and 5m) or 6x (6h and 30m) of the budget |
+| `ApiEdgeAvailabilityBudgetBurnSlow` | Probes failing at 3x (1d and 2h) or 1x (3d and 6h) of the budget |
+| `EdgeProbeFailing` | The audit API or web client probe failing for 2m |
+| `EdgeProberDown` | Prober unreachable for 2m, so the edge objective is not measured |
 
 The event-pipeline rules watch progress rather than request symptoms: when the
 pipeline stalls, writes keep succeeding and only the history falls behind.
