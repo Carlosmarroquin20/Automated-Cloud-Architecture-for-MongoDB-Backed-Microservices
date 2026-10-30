@@ -562,8 +562,13 @@ jobs:
           fixture() { yq "select(.metadata.name == \"$1\")" k8s/policies/tests/resources.yaml; }
           # out-of-scope sits in kube-system, where the policies do not apply.
           for name in compliant own-image out-of-scope; do
-            fixture "${name}" | kubectl apply --dry-run=server -f - >/dev/null \
-              || { echo "::error::compliant fixture ${name} was refused"; exit 1; }
+            out="$(fixture "${name}" | kubectl apply --dry-run=server -f - 2>&1)" \
+              || { echo "::error::compliant fixture ${name} was refused: ${out}"; exit 1; }
+            # Pod Security only warns on workloads and refuses their pods later,
+            # so a warning on a compliant fixture is a failure here.
+            if echo "${out}" | grep -q 'would violate PodSecurity'; then
+              echo "::error::compliant fixture ${name} violates the restricted profile: ${out}"; exit 1
+            fi
             echo "${name}: admitted"
           done
           while read -r name policy; do

@@ -1,6 +1,7 @@
-# Fixtures for the policy tests. `compliant` satisfies every policy; each other
-# workload breaks exactly one rule, so a policy that stops detecting its case,
-# or starts rejecting a compliant workload, fails the test.
+# Fixtures for the policy tests. `compliant` satisfies every policy and the Pod
+# Security restricted profile; each other workload breaks exactly one rule, so
+# a policy that stops detecting its case, or starts rejecting a compliant
+# workload, fails the test.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,12 +15,20 @@ spec:
     metadata:
       labels: *labels
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       automountServiceAccountToken: false
       initContainers:
         - name: migrate
           image: registry.example/migrate@sha256:0000000000000000000000000000000000000000000000000000000000000000
           securityContext:
+            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 32Mi}
@@ -27,7 +36,10 @@ spec:
         - name: app
           image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
           securityContext:
+            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 128Mi}
@@ -51,12 +63,20 @@ spec:
     metadata:
       labels: *labels
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       automountServiceAccountToken: false
       containers:
         - name: app
           image: mongodb-microservice-backend:latest
           securityContext:
+            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 128Mi}
@@ -80,12 +100,20 @@ spec:
     metadata:
       labels: *labels
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: prometheus
       containers:
         - name: app
           image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
           securityContext:
+            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits: {memory: 128Mi}
