@@ -155,7 +155,10 @@ async def test_binding_state_follows_the_broker_connection(monkeypatch: pytest.M
         client.drain = AsyncMock()
         subscription = MagicMock()
         subscription.fetch = fetch
-        client.jetstream.return_value.pull_subscribe = AsyncMock(return_value=subscription)
+        js = client.jetstream.return_value
+        js.add_stream = AsyncMock()
+        js.stream_info = AsyncMock(return_value=MagicMock(state=MagicMock(messages=0)))
+        js.pull_subscribe = AsyncMock(return_value=subscription)
         return client
 
     monkeypatch.setattr("app.consumer.nats.connect", connect)
@@ -164,3 +167,50 @@ async def test_binding_state_follows_the_broker_connection(monkeypatch: pytest.M
 
     assert observed == [True, False, True]
     assert REGISTRY.get_sample_value("audit_consumer_connected") == 0.0
+
+
+async def test_the_dead_letter_stream_exists_before_the_consumer_binds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An advisory published before its stream exists is lost, so the order is
+    # part of the guarantee that no abandoned event goes unrecorded.
+    stop = asyncio.Event()
+    calls: list[str] = []
+    repository = MagicMock()
+    repository.ensure_indexes = AsyncMock()
+
+    async def fetch(*_: Any, **__: Any) -> list[Any]:
+        stop.set()
+        raise NatsTimeoutError
+
+    subscription = MagicMock()
+    subscription.fetch = fetch
+
+    async def add_stream(config: Any) -> None:
+        calls.append(f"add {config.name}")
+
+    async def stream_info(name: str) -> MagicMock:
+        calls.append(f"count {name}")
+        return MagicMock(state=MagicMock(messages=3))
+
+    async def pull_subscribe(*_: Any, **kwargs: Any) -> MagicMock:
+        calls.append(f"bind {kwargs['durable']}")
+        return subscription
+
+    async def connect(**_: Any) -> MagicMock:
+        client = MagicMock(is_closed=False)
+        client.drain = AsyncMock()
+        js = client.jetstream.return_value
+        js.add_stream, js.stream_info, js.pull_subscribe = add_stream, stream_info, pull_subscribe
+        return client
+
+    monkeypatch.setattr("app.consumer.nats.connect", connect)
+
+    await asyncio.wait_for(AuditConsumer(Settings(), repository).run(stop), timeout=1.0)
+
+    assert calls == [
+        "add AUDIT_DEAD_LETTERS",
+        "bind audit-service",
+        "count AUDIT_DEAD_LETTERS",
+    ]
+    assert REGISTRY.get_sample_value("audit_dead_letters") == 3.0

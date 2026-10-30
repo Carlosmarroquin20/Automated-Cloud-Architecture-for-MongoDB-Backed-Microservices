@@ -17,7 +17,7 @@ outlives the items it describes.
   |---------|------|--------|
   | `ack` | Recorded, or already recorded | Removed from the consumer's pending set |
   | `term` | Malformed; it would fail identically on every delivery | Never redelivered |
-  | `nak` with delay | The database rejected the write | Redelivered after 1, 2, 4, 8 … seconds (capped at 30), at most five deliveries |
+  | `nak` with delay | The database rejected the write | Redelivered after 1, 2, 4, 8 … seconds (capped at 30), at most five deliveries, then dead-lettered |
 
 - **Idempotency:** the event id is the history entry's `_id`, so a redelivered or
   republished event hits the unique index and is acknowledged as a duplicate.
@@ -32,6 +32,31 @@ outlives the items it describes.
 - **Tracing:** each message's processing span continues the trace carried in its
   `traceparent` header, so one trace links the originating request, the relay's
   publish, and the history write.
+
+## Dead Letters
+
+An event the consumer abandons after its last delivery, or terminates as
+malformed, becomes a dead letter: JetStream publishes an advisory for it, and
+the `AUDIT_DEAD_LETTERS` stream, declared by this service before it binds,
+captures the advisory. The broker records the failure, so it is captured
+whatever caused it, including crashes and processing that outlasts the
+acknowledgement wait. `audit_dead_letters` counts the unresolved ones and the
+`AuditDeadLetters` alert fires at one.
+
+Resolve them from inside a running audit container, which already holds the
+database credential and the broker address:
+
+```bash
+kubectl -n microservice exec deploy/audit -- python3 -m app.replay --dry-run
+kubectl -n microservice exec deploy/audit -- python3 -m app.replay
+docker compose exec audit python3 -m app.replay
+```
+
+Each dead letter's event is read back from the `ITEMS` stream, recorded in the
+history under the event's original trace, and the dead letter is removed. A
+malformed event, or one that has aged out of the stream (seven days), stays
+until it is removed with `--discard-unrecoverable`. The command prints a JSON
+summary and exits non-zero while dead letters remain.
 
 The consumed contract is [`docs/api/asyncapi.yaml`](../../docs/api/asyncapi.yaml).
 The consumer validates only the CloudEvents attributes it relies on and ignores
@@ -55,6 +80,7 @@ same per-client rate limit as the items API.
 |--------|------|--------|---------|
 | `audit_events_consumed_total` | Counter | outcome | `recorded`, `duplicate`, `retried`, or `rejected` |
 | `audit_consumer_connected` | Gauge | — | 1 while bound to the stream, 0 while reconnecting |
+| `audit_dead_letters` | Gauge | — | Dead letters not yet replayed or discarded |
 
 ## Configuration
 

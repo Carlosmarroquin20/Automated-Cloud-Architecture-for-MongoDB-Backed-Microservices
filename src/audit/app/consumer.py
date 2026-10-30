@@ -8,8 +8,9 @@ so a crash before the acknowledgement makes JetStream redeliver it:
 - storage unavailable: ``nak`` with a delay that grows per delivery attempt.
 
 JetStream stops redelivering after ``max_deliver`` attempts, which bounds the
-work a persistently failing event can cause. The consumer is durable, so its
-position survives restarts, and replicas pulling from it share the load.
+work a persistently failing event can cause; the abandoned event becomes a dead
+letter (``app.deadletter``) instead of disappearing. The consumer is durable, so
+its position survives restarts, and replicas pulling from it share the load.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from pymongo.errors import PyMongoError
 
 from app.backoff import backoff_delays
 from app.config import Settings
+from app.deadletter import ensure_dead_letter_stream, refresh_dead_letter_count
 from app.models import ItemEvent
 from app.repository import AuditRepository
 
@@ -48,6 +50,7 @@ FILTER_SUBJECT = "items.>"
 _FETCH_TIMEOUT_SECONDS = 5.0
 _RECONNECT_BASE_DELAY_SECONDS = 0.5
 _REDELIVERY_DELAY_CAP_SECONDS = 30.0
+_DEAD_LETTER_REFRESH_SECONDS = 15.0
 
 EVENTS_CONSUMED = Counter(
     "audit_events_consumed_total",
@@ -108,7 +111,7 @@ class EventHandler:
             logger.log(
                 logging.ERROR if final else logging.WARNING,
                 "event not recorded; "
-                + ("delivery attempts exhausted" if final else "redelivery requested"),
+                + ("attempts exhausted; dead-lettered" if final else "redelivery requested"),
                 extra={"event_id": event.id, "attempt": attempt, "error": str(exc)},
             )
             await msg.nak(delay=redelivery_delay(attempt))
@@ -177,7 +180,13 @@ class AuditConsumer:
                     disconnected_cb=self._on_disconnected,
                     reconnected_cb=self._on_reconnected,
                 )
-                subscription = await client.jetstream().pull_subscribe(
+                js = client.jetstream()
+                # Declared before binding, so the advisory for an event abandoned
+                # on its first deliveries already has a stream to land in.
+                await ensure_dead_letter_stream(
+                    js, STREAM_NAME, self._settings.consumer_durable_name
+                )
+                subscription = await js.pull_subscribe(
                     FILTER_SUBJECT,
                     durable=self._settings.consumer_durable_name,
                     stream=STREAM_NAME,
@@ -186,7 +195,12 @@ class AuditConsumer:
                 self._set_connected(True)
                 logger.info("consumer bound to stream", extra={"stream": STREAM_NAME})
                 delays = backoff_delays(_RECONNECT_BASE_DELAY_SECONDS)
+                loop = asyncio.get_running_loop()
+                next_refresh = loop.time()
                 while not stop.is_set():
+                    if loop.time() >= next_refresh:
+                        await refresh_dead_letter_count(js)
+                        next_refresh = loop.time() + _DEAD_LETTER_REFRESH_SECONDS
                     try:
                         messages = await subscription.fetch(
                             self._settings.consumer_batch_size, timeout=_FETCH_TIMEOUT_SECONDS

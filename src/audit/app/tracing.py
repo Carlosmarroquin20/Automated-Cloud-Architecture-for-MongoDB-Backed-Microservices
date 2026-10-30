@@ -28,11 +28,7 @@ _EXCLUDED_URLS = "health/live,health/ready,metrics"
 _instrumented = False
 
 
-def configure_tracing(app: FastAPI, settings: Settings) -> None:
-    global _instrumented
-    if not settings.otel_enabled or _instrumented:
-        return
-
+def _install_provider(settings: Settings) -> TracerProvider:
     provider = TracerProvider(
         resource=Resource.create(
             {
@@ -47,8 +43,25 @@ def configure_tracing(app: FastAPI, settings: Settings) -> None:
             BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.otel_exporter_otlp_endpoint))
         )
     trace.set_tracer_provider(provider)
+    return provider
 
+
+def configure_tracing(app: FastAPI, settings: Settings) -> None:
+    global _instrumented
+    if not settings.otel_enabled or _instrumented:
+        return
+
+    provider = _install_provider(settings)
     FastAPIInstrumentor.instrument_app(app, tracer_provider=provider, excluded_urls=_EXCLUDED_URLS)
     PymongoInstrumentor().instrument(tracer_provider=provider)
     _instrumented = True
     logger.info("tracing enabled", extra={"service_name": settings.app_name})
+
+
+def configure_command_tracing(settings: Settings) -> TracerProvider | None:
+    """Tracing for a one-shot command; the caller shuts the provider down to flush."""
+    if not settings.otel_enabled:
+        return None
+    provider = _install_provider(settings)
+    PymongoInstrumentor().instrument(tracer_provider=provider)
+    return provider
