@@ -721,14 +721,22 @@ probes are only proven by running them.
 
 **Consequences.** CI removes the database and asserts the backend's 5xx counter
 stands still while every probe fails, which shows the blind spot directly and the
-probes seeing through it. Running them also found a defect no service-side signal
-could reveal: the proxy set no timeouts, so with no backend pod ready, a client
-waited on a dropped connection for nginx's 60-second default and then received a
-bare 504. The proxy now gives up on a connection after 3 seconds and on a response
-after 30, above the backend's own deadlines, and answers 502 with the standard
-error envelope and `Retry-After`: 3.0 seconds for a dropped connection, 8
-milliseconds for a refused one, and 30 seconds for an upstream that never answers.
-The status stays 502 so an operator can tell the proxy answered alone. Both alert
+probes seeing through it. In a live run, the backend was stopped for six minutes
+after an hour of healthy traffic: the edge burn alert fired 195 seconds in and the
+service-side burn alerts never did. That detection time is optimistic, because the
+alert fired through its six-hour condition with only 70 minutes of history; with a
+full window the 14.4x condition needs about 4.3 minutes of total outage.
+
+Running the probes also found a defect no service-side signal could reveal: the
+proxy set no timeouts, so with no backend pod ready, a client waited on a dropped
+connection for nginx's 60-second default and then received a bare 504. In the live
+run clients received 1,118 502s taking up to 38.5 seconds and four 504s at exactly
+60. The proxy now gives up on a connection after 3 seconds and on a response after
+30, above the backend's own deadlines, and answers 502 with the standard error
+envelope and `Retry-After`: 3.0 seconds for a dropped connection, 8 milliseconds
+for a refused one, and 30 seconds for an upstream that never answers. A repeat
+outage under the same traffic produced 280 502s, none slower than 3.00 seconds, and
+no 504. The status stays 502 so an operator can tell the proxy answered alone. Both alert
 families fire when the backend answers with errors; without an Alertmanager locally
 they are not deduplicated. A single probe has coarse resolution, four samples a
 minute, and one lost probe on a stack with little history can briefly exceed the

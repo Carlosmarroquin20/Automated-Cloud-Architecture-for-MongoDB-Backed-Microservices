@@ -562,7 +562,9 @@
               }
             ]
           },
-          "decimals": 2
+          "decimals": 2,
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -863,7 +865,9 @@
               }
             ]
           },
-          "decimals": 2
+          "decimals": 2,
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -1018,7 +1022,9 @@
               }
             ]
           },
-          "decimals": 0
+          "decimals": 0,
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },

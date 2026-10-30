@@ -180,6 +180,18 @@ budget ([ADR-0030](docs/adr/README.md#adr-0030--service-level-objectives-and-bur
 
 ![Grafana Service Level Objectives dashboard during a five-minute database outage](docs/images/grafana-slo.png)
 
+**An outage the backend never sees.** The backend was stopped for six minutes
+after an hour of healthy traffic, so no request reached it. The service-side burn
+alerts never fired and its error ratio stayed at zero, while the synthetic probes
+through the reverse proxy reached a 100% error ratio and paged. The first run also
+exposed a proxy with no timeouts, which kept clients waiting up to 60 seconds; a
+repeat outage after the fix answered every request within 3 seconds
+([ADR-0033](docs/adr/README.md#adr-0033--availability-measured-from-outside-the-service)).
+The objective cards include the database outage above and the hours of local
+history around it.
+
+![Grafana Service Level Objectives dashboard during a backend outage: the service error ratio stays flat while the edge error ratio reaches 100%](docs/images/grafana-slo-edge.png)
+
 **Microservice Overview dashboard.** Request rate by status, latency
 percentiles, error ratio, saturation, process resources, and the running build.
 
