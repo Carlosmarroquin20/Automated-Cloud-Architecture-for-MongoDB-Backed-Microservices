@@ -6,7 +6,7 @@ name: mongodb-microservice
 
 services:
   mongo:
-    image: mongo:7
+    image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
     restart: unless-stopped
     # A single-node replica set: the transactional outbox needs multi-document
     # transactions, which a standalone server does not support.
@@ -190,7 +190,7 @@ services:
       - internal
 
   grafana:
-    image: grafana/grafana:11.2.0
+    image: grafana/grafana:11.2.0@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
     profiles: ["observability"]
     restart: unless-stopped
     # Anonymous access with the login form disabled avoids provisioning a

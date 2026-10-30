@@ -21,6 +21,9 @@ spec:
         app.kubernetes.io/name: nats
         app.kubernetes.io/component: messaging
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       # The image defaults to root; the server needs no privilege, so it runs as
       # an unprivileged user and owns its storage through the fsGroup.
       securityContext:

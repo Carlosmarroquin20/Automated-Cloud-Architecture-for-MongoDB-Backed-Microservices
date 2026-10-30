@@ -2,3 +2,11 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: microservice
+  # Pod Security Admission enforces the restricted profile: non-root users,
+  # no privilege escalation, all capabilities dropped, the runtime's default
+  # seccomp profile, and no host namespaces or host paths.
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

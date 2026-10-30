@@ -28,6 +28,9 @@ spec:
         prometheus.io/port: "9000"
         prometheus.io/path: "/metrics"
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -89,6 +92,16 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 3
+          # The relay serves no traffic; readiness tracks the same heartbeat so
+          # a rollout counts a replica available only once its loop is running.
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/outbox-relay.heartbeat') > 30)"
+            periodSeconds: 10
+            timeoutSeconds: 5
           volumeMounts:
             - name: tmp
               mountPath: /tmp

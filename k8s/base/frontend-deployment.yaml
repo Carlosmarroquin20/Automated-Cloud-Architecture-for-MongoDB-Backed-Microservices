@@ -22,6 +22,9 @@ spec:
         app.kubernetes.io/name: frontend
         app.kubernetes.io/component: web
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       # Pod-level hardening; the unprivileged nginx image already runs as its
       # non-root nginx user (uid 101) and listens on a high port.
       securityContext:

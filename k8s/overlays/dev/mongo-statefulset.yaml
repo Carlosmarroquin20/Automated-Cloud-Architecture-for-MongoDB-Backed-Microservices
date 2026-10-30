@@ -22,9 +22,24 @@ spec:
         app.kubernetes.io/name: mongo
         app.kubernetes.io/component: database
     spec:
+      automountServiceAccountToken: false
+      # The image's own unprivileged user (uid 999). fsGroup makes the data
+      # volume writable for it where the storage driver supports ownership.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mongo
-          image: mongo:7
+          image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           args: ["--replSet", "rs0", "--bind_ip_all"]
           # Initiates the replica set once mongod accepts connections. The hook
           # is idempotent, so restarts and rescheduling are safe; the container
@@ -65,9 +80,25 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 10
+          # Liveness only asks whether mongod accepts connections: a member
+          # that is not primary is alive, and restarting it would not help.
+          livenessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: data
               mountPath: /data/db
+            # mongod's socket file and mongosh's scratch files.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
   volumeClaimTemplates:
     - metadata:
         name: data

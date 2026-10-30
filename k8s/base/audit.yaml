@@ -47,6 +47,9 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

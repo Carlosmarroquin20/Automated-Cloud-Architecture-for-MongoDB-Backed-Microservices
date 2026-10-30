@@ -27,6 +27,9 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       # Pod-level hardening; the container image already runs as the distroless
       # non-root user (uid 65532).
       securityContext:

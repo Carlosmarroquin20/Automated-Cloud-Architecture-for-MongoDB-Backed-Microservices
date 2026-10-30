@@ -24,6 +24,9 @@ spec:
         app.kubernetes.io/name: jaeger
         app.kubernetes.io/component: tracing
     spec:
+      # The workload never calls the Kubernetes API, so the default service
+      # account's token is not mounted.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
