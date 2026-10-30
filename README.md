@@ -271,7 +271,7 @@ Every layer ships with automated verification.
 | Component | Gates |
 |-----------|-------|
 | Backend | `ruff check` · `mypy --strict` (50 files) · `pytest` (62 tests) · OpenAPI drift check · AsyncAPI contract tests |
-| Audit service | `ruff check` · `mypy --strict` (15 files) · `pytest` (20 tests) |
+| Audit service | `ruff check` · `mypy --strict` (18 files) · `pytest` (36 tests) |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
 | Monitoring | `promtool check config` for both Prometheus configurations · `promtool test rules` unit tests for the alerts · dashboard and rule copies kept identical |
 
@@ -291,7 +291,7 @@ ephemeral cluster.
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface

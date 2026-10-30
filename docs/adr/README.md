@@ -38,6 +38,7 @@ looks the way it does, not merely *what* it contains.
 | 0026 | Event contract as a checked artifact | Accepted |
 | 0027 | Trace context across the asynchronous boundary | Accepted |
 | 0028 | Broker outage as a verified failure mode | Accepted |
+| 0029 | Dead letters captured by the broker | Accepted |
 
 ---
 
@@ -439,7 +440,9 @@ stream, and the stream's seven-day retention allows those events to be replayed
 by resetting the consumer. Rejected events signal a contract mismatch and also
 alert.
 
-**Status.** Accepted (2026-10-28).
+**Status.** Accepted (2026-10-28). Amended 2026-10-30: abandoned and rejected
+events become dead letters that are replayed individually (ADR-0029); resetting
+the consumer is no longer the recovery path.
 
 ## ADR-0025 — Database per service
 
@@ -542,3 +545,42 @@ recovery and lingered five minutes, so it now uses a one-minute window and a
 two-minute hold.
 
 **Status.** Accepted (2026-10-29).
+
+## ADR-0029 — Dead letters captured by the broker
+
+**Context.** The audit consumer gives up on an event after five deliveries
+(ADR-0024). Until now the only trace of an abandoned event was a log line: the
+history silently lacked it, no metric counted it, and recovering it meant
+resetting the consumer and reprocessing the whole stream. The outbox guarantees
+that no event is lost before the broker (ADR-0022); without dead letters, the
+last hop could still lose one.
+
+**Decision.** A stream owned by the audit service, `AUDIT_DEAD_LETTERS`, captures
+the advisories JetStream publishes when this consumer exhausts a message's
+deliveries or terminates it. The broker records the failure, so it is captured
+whatever caused it: storage errors, repeated crashes, or processing that outlasts
+the acknowledgement wait; code on the failure path is not trusted to report its
+own failure. The service declares the stream before binding the consumer and
+exports the number of unresolved dead letters (`audit_dead_letters`), which
+alerts at one. An operator command in the service image,
+`python3 -m app.replay`, reads each dead letter's event back from the item
+stream, records it directly in the history with the original trace context, and
+removes the dead letter; `--dry-run` reports without changing anything and
+`--discard-unrecoverable` removes dead letters whose event is malformed or has
+aged out. The command exits non-zero while dead letters remain.
+
+**Consequences.** An event refused by the audit database is held, counted,
+alerted on, and recoverable one by one, and its trace shows the request, the
+publish, every failed delivery, and the replay. Replaying into the store rather
+than republishing keeps the item stream an exact record of what was published
+and leaves other consumers unaffected; recording is idempotent, so a replay
+that races the live consumer or runs twice records each event once. An advisory
+points to the event by stream sequence and does not carry it, so a dead letter
+is recoverable only while the item stream retains the event (seven days). The
+replay is a command rather than an HTTP endpoint because the service's HTTP
+surface, reachable through the public proxy, is read-only. CI refuses one
+event's write with a collection validator, asserts it becomes a dead letter and
+stays out of the history, then replays it and asserts the history holds it and
+nothing remains pending.
+
+**Status.** Accepted (2026-10-30).

@@ -126,3 +126,27 @@ tests:
       - eval_time: 6m
         alertname: AuditConsumerDisconnected
         exp_alerts: []
+
+  # A dead letter alerts at once and holds until it is replayed or discarded.
+  - name: an unresolved dead letter alerts until it is resolved
+    interval: 1m
+    input_series:
+      - series: 'audit_dead_letters{job="audit",instance="audit:8000"}'
+        values: "0 0 1 1 1 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AuditDeadLetters
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: AuditDeadLetters
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Events are missing from the audit history
+              description: >-
+                Abandoned events waiting in AUDIT_DEAD_LETTERS: 1. Resolve
+                them with python3 -m app.replay in an audit service container.
+      - eval_time: 5m
+        alertname: AuditDeadLetters
+        exp_alerts: []

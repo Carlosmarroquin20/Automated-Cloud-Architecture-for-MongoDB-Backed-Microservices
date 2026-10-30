@@ -29,7 +29,7 @@
       "title": "Outbox relay",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 3,
         "x": 0,
         "y": 0
       },
@@ -101,8 +101,8 @@
       "title": "Audit service",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
+        "w": 3,
+        "x": 3,
         "y": 0
       },
       "datasource": {
@@ -174,7 +174,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 8,
+        "x": 6,
         "y": 0
       },
       "datasource": {
@@ -247,7 +247,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
+        "x": 10,
         "y": 0
       },
       "datasource": {
@@ -302,11 +302,67 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Published (rate)",
+      "title": "Dead letters",
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
+        "x": 14,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(audit_dead_letters)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Events the audit consumer abandoned after exhausting their deliveries, or terminated as malformed, and not yet replayed. Resolve with python3 -m app.replay in an audit container."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Published (rate)",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
         "y": 0
       },
       "datasource": {
@@ -350,13 +406,13 @@
       }
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "stat",
       "title": "Consumed (rate)",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 20,
+        "w": 3,
+        "x": 21,
         "y": 0
       },
       "datasource": {
@@ -400,7 +456,7 @@
       }
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "timeseries",
       "title": "Events published by type",
       "gridPos": {
@@ -449,7 +505,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "timeseries",
       "title": "Events consumed by outcome",
       "gridPos": {
@@ -496,10 +552,10 @@
           "sort": "desc"
         }
       },
-      "description": "recorded: new history entry; duplicate: redelivery already recorded; retried: storage failure, redelivery requested; rejected: malformed event, terminated."
+      "description": "recorded: new history entry; duplicate: redelivery already recorded; retried: storage failure, redelivery requested; rejected: malformed event, terminated and dead-lettered."
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "timeseries",
       "title": "Outbox backlog age",
       "gridPos": {
@@ -548,7 +604,7 @@
       }
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "timeseries",
       "title": "Publish failures and broker duplicates",
       "gridPos": {
@@ -603,7 +659,7 @@
       "description": "Failures are retried on the next relay pass. Duplicates are republished events that JetStream discarded by message id."
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "timeseries",
       "title": "Resident memory",
       "gridPos": {
@@ -652,7 +708,7 @@
       }
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "timeseries",
       "title": "CPU usage",
       "gridPos": {

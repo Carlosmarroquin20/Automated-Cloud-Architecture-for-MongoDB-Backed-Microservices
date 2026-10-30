@@ -670,6 +670,58 @@ jobs:
             and .consumer.ack_floor == $total
           ' >/dev/null || { echo "::error::the stream and consumer do not account for every event exactly once"; exit 1; }
 
+      # Failure injection: the audit database refuses one event's write until
+      # its deliveries are exhausted. The event must become a dead letter rather
+      # than vanish, the consumer must report it, and once the database accepts
+      # writes again a replay must record it and leave no dead letter behind.
+      - name: Dead-letter an event the audit database refuses, then replay it
+        run: |
+          kubectl -n "$NAMESPACE" port-forward svc/frontend 28080:80 > dead-letter-port-forward.log 2>&1 &
+          kubectl -n "$NAMESPACE" port-forward svc/audit 28000:8000 >> dead-letter-port-forward.log 2>&1 &
+          sleep 3
+          mongo() { kubectl -n "$NAMESPACE" exec mongo-0 -- mongosh --quiet --eval "$1"; }
+          dead_letters() { curl -fsS http://localhost:28000/metrics | awk '/^audit_dead_letters /{print $2}'; }
+          history() { curl -fsS "http://localhost:28080/api/v1/audit/items/$1/events" | jq length; }
+
+          # A validator no document satisfies makes every insert fail with a
+          # write error, while the items database keeps accepting writes.
+          mongo 'db.getSiblingDB("audit").runCommand({collMod: "events", validator: {_id: {$exists: false}}}).ok'
+          id="$(curl -fsS -X POST http://localhost:28080/api/v1/items -H 'Content-Type: application/json' \
+            -d '{"name":"dead-letter-probe","quantity":1}' | jq -r .id)"
+
+          # Five deliveries spaced 1, 2, 4, 8, and 16 seconds apart, then the
+          # broker's advisory, then the next refresh of the consumer's count.
+          for _ in $(seq 1 40); do
+            [ "$(dead_letters)" = "1.0" ] && break
+            sleep 3
+          done
+          echo "while refused: dead letters $(dead_letters), history entries $(history "${id}")"
+          [ "$(dead_letters)" = "1.0" ] || { echo "::error::the abandoned event did not become a dead letter"; exit 1; }
+          [ "$(history "${id}")" = "0" ] || { echo "::error::the refused event reached the history"; exit 1; }
+
+          mongo 'db.getSiblingDB("audit").runCommand({collMod: "events", validator: {}}).ok'
+          kubectl -n "$NAMESPACE" exec deploy/audit -- python3 -m app.replay | tee replay.log
+          tail -n 1 replay.log | jq -e '.outcomes == {"recorded": 1} and .remaining == 0' >/dev/null \
+            || { echo "::error::the replay did not record the dead letter"; exit 1; }
+          [ "$(history "${id}")" = "1" ] || { echo "::error::the replayed event is missing from the history"; exit 1; }
+
+          for _ in $(seq 1 15); do
+            [ "$(dead_letters)" = "0.0" ] && break
+            sleep 2
+          done
+          [ "$(dead_letters)" = "0.0" ] || { echo "::error::the consumer still reports dead letters"; exit 1; }
+          consumer="$(kubectl -n "$NAMESPACE" exec nats-0 -- \
+            wget -qO- 'http://127.0.0.1:8222/jsz?accounts=true&streams=true&consumers=true' \
+            | jq '{dead_letters: ([.account_details[]?.stream_detail[]? | select(.name == "AUDIT_DEAD_LETTERS")][0].state.messages),
+                   consumer: ([.account_details[]?.stream_detail[]? | select(.name == "ITEMS")][0].consumer_detail[]?
+                              | select(.name == "audit-service") | {num_pending, num_ack_pending})}')"
+          echo "${consumer}" | jq .
+          echo "${consumer}" | jq -e '
+            .dead_letters == 0
+            and .consumer.num_pending == 0
+            and .consumer.num_ack_pending == 0
+          ' >/dev/null || { echo "::error::dead letters or unacknowledged events remain"; exit 1; }
+
       - name: Collect diagnostics
         if: failure()
         run: |
@@ -681,7 +733,7 @@ jobs:
             kubectl -n "$NAMESPACE" logs "$pod" --all-containers --previous --tail=40 2>/dev/null || true
           done
           kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
-          cat port-forward.log jaeger-port-forward.log outage-port-forward.log 2>/dev/null || true
+          cat port-forward.log jaeger-port-forward.log outage-port-forward.log dead-letter-port-forward.log 2>/dev/null || true
           # A condensed view is also emitted as annotations, which remain readable
           # on the run page and through the API without downloading the logs.
           kubectl -n "$NAMESPACE" get pods --no-headers 2>/dev/null | while read -r line; do
@@ -705,8 +757,9 @@ jobs:
             echo
             echo "Images from this commit deployed to a kind cluster with the \`k8s/overlays/dev\` overlay,"
             echo "followed by a readiness check and a create/read/delete round trip through the frontend,"
-            echo "event delivery to the audit service, a trace spanning all three services, and a"
-            echo "broker outage survived without losing or duplicating an event."
+            echo "event delivery to the audit service, a trace spanning all three services, a"
+            echo "broker outage survived without losing or duplicating an event, and an event the"
+            echo "audit database refused captured as a dead letter and replayed into the history."
             echo
             echo '```'
             kubectl -n "$NAMESPACE" get pods -o wide 2>/dev/null || echo "cluster unavailable"

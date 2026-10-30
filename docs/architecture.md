@@ -128,7 +128,7 @@ C4Component
   title Components: Audit service
 
   Container(web, "Web frontend", "nginx", "Reverse proxy")
-  ContainerQueue(nats, "NATS JetStream", "NATS", "Stream ITEMS")
+  ContainerQueue(nats, "NATS JetStream", "NATS", "Streams ITEMS and AUDIT_DEAD_LETTERS")
   ContainerDb(auditdb, "Audit database", "MongoDB", "history collection")
 
   Container_Boundary(audit, "Audit service") {
@@ -136,6 +136,7 @@ C4Component
     Component(handler, "Event handler", "Pydantic", "Validates the envelope; settles each message: ack, term, or delayed nak")
     Component(repo, "Audit repository", "PyMongo async", "Inserts keyed by event id; history ordered by event time")
     Component(api, "History API", "FastAPI router", "GET /api/v1/audit/items/{id}/events; health; metrics")
+    Component(replay, "Dead-letter replay", "Operator command", "python3 -m app.replay: records abandoned events, removes their dead letters")
   }
 
   Rel(consumer, nats, "Fetches batches", "NATS")
@@ -144,6 +145,8 @@ C4Component
   Rel(web, api, "Forwards requests", "HTTP")
   Rel(api, repo, "Reads history")
   Rel(repo, auditdb, "Reads and writes", "MongoDB protocol")
+  Rel(replay, nats, "Reads dead letters and their events", "NATS")
+  Rel(replay, repo, "Records")
 
   UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```

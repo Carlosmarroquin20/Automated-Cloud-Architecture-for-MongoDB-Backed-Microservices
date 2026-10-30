@@ -112,7 +112,7 @@ groups:
           summary: Audit events are being redelivered
           description: >-
             The audit service has been failing to record events for five minutes;
-            events that exhaust their delivery attempts are not recorded.
+            events that exhaust their delivery attempts become dead letters.
 
       - alert: AuditEventsRejected
         # A rejected event is malformed and terminated without retry, so a single
@@ -125,3 +125,16 @@ groups:
           description: >-
             The audit service terminated events that do not match the published
             contract (docs/api/asyncapi.yaml) within the last fifteen minutes.
+
+      - alert: AuditDeadLetters
+        # A dead letter is an event missing from the history until it is
+        # replayed or discarded, so a single one alerts and the alert holds
+        # until it is resolved.
+        expr: max(audit_dead_letters) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Events are missing from the audit history
+          description: >-
+            Abandoned events waiting in AUDIT_DEAD_LETTERS: {{ $value }}. Resolve
+            them with python3 -m app.replay in an audit service container.

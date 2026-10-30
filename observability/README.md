@@ -86,6 +86,7 @@ Event pipeline:
 | `outbox_oldest_pending_age_seconds` | Gauge | — | Backlog age; zero when drained |
 | `audit_events_consumed_total` | Counter | outcome | `recorded`, `duplicate`, `retried`, `rejected` |
 | `audit_consumer_connected` | Gauge | — | 1 while bound to the stream |
+| `audit_dead_letters` | Gauge | — | Abandoned events awaiting replay |
 
 Process and interpreter metrics (`process_*`, `python_*`) are exported by the
 Prometheus client library and drive the resource panels.
@@ -118,6 +119,7 @@ docker run --rm --entrypoint promtool -v "$PWD/observability/prometheus:/etc/pro
 | `AuditConsumerDisconnected` | Any audit replica unbound from the stream for 2m |
 | `AuditEventsRetrying` | Events redelivered after storage failures for 5m |
 | `AuditEventsRejected` | Any malformed event terminated in the last 15m |
+| `AuditDeadLetters` | Any dead letter not yet replayed or discarded |
 
 The event-pipeline rules watch progress rather than request symptoms: when the
 pipeline stalls, writes keep succeeding and only the history falls behind.
