@@ -20,7 +20,8 @@ k8s/
 ├── overlays/
 │   └── dev/             # Self-contained stack: in-cluster MongoDB replica set,
 │                        # Jaeger, and tracing enabled for all services
-└── monitoring/          # In-cluster Prometheus + Grafana (own namespace)
+├── monitoring/          # In-cluster Prometheus + Grafana (own namespace)
+└── policies/            # Admission policies (ValidatingAdmissionPolicy) and their tests
 ```
 
 ## Event pipeline
@@ -51,6 +52,14 @@ kubectl apply -k k8s/monitoring
 ```
 
 ## Deploy
+
+Both namespaces enforce the Pod Security `restricted` profile, and the admission
+policies in [`policies/`](policies/) are applied first so every workload is
+admitted against them:
+
+```bash
+kubectl apply -k k8s/policies
+```
 
 ### Production-style (external MongoDB Atlas)
 

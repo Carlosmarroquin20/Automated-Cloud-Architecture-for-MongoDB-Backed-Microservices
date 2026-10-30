@@ -202,7 +202,7 @@ behind the same origin.
 | Frontend quality | ESLint, tsc (strict), Vitest |
 | Containers | Multi-stage Docker (distroless backend, nginx frontend), Compose |
 | Infrastructure | Terraform (modular AWS, free-tier), SSM Session Manager |
-| Orchestration | Kubernetes, Kustomize, HPA, NetworkPolicies |
+| Orchestration | Kubernetes, Kustomize, HPA, NetworkPolicies, Pod Security Admission, ValidatingAdmissionPolicy |
 | CI/CD | GitHub Actions (lint, test, scan, build, ephemeral deploy + smoke test) |
 | Observability | Prometheus (scrape + alerts), Grafana (provisioned dashboards), OpenTelemetry + Jaeger |
 
@@ -216,7 +216,7 @@ behind the same origin.
 │   └── frontend/         # Vite + TypeScript static client
 ├── .github/              # CI/CD pipelines and dependency automation
 ├── terraform/            # Infrastructure as Code (modular AWS)
-├── k8s/                  # Kubernetes manifests (Kustomize base + overlay)
+├── k8s/                  # Kubernetes manifests (Kustomize base + overlays) and admission policies
 ├── observability/        # Prometheus config + Grafana dashboards
 ├── docs/                 # ADRs, C4 architecture, API and event contracts, screenshots
 ├── scripts/              # End-to-end smoke test
@@ -286,6 +286,7 @@ Every layer ships with automated verification.
 | Audit service | `ruff check` · `mypy --strict` (18 files) · `pytest` (36 tests) |
 | Frontend | `eslint` · `tsc --noEmit` (strict) · `vitest` (18 tests) · `vite build` |
 | Monitoring | `promtool check config` for both Prometheus configurations · `promtool test rules` unit tests for the SLO and pipeline alerts · dashboard and rule copies kept identical |
+| Admission policies | `kyverno test` unit tests (25 cases) · every deployed workload evaluated against the policies |
 
 The frontend production bundle is approximately 6.6 kB gzipped (JavaScript and
 CSS combined). All test suites are hermetic and require no database or broker.
@@ -299,11 +300,11 @@ ephemeral cluster.
 | Stage | Tooling |
 |-------|---------|
 | Lint · type-check · test | ruff, mypy `--strict`, pytest for both services (Python 3.10–3.12 matrix); ESLint, tsc, Vitest |
-| IaC validation | `terraform fmt`/`validate`; Kustomize render validated with kubeconform; promtool |
+| IaC validation | `terraform fmt`/`validate`; Kustomize render validated with kubeconform; promtool; admission policies unit-tested and evaluated against every workload |
 | Static analysis | CodeQL (Python, TypeScript); Hadolint (Dockerfiles) |
 | Supply chain | gitleaks secret scan, dependency review, Dependabot |
 | Image security | Trivy configuration and image scans (results as SARIF) |
-| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed; writes refused with 503 within seconds while the database is down |
+| Deploy verification | Dev overlay applied to an ephemeral kind cluster; rollouts awaited; smoke test through the frontend (CRUD, audit history, rate limit); outbox, stream, and consumer state asserted; one trace verified across API, relay, and consumer; broker outage injected and zero event loss asserted; a refused event dead-lettered and replayed; writes refused with 503 within seconds while the database is down; non-compliant workloads refused by Pod Security Admission and the admission policies |
 
 Tagged releases (`vX.Y.Z`) build and publish semantically versioned images to the
 GitHub Container Registry with build provenance and an SBOM. All scanners surface

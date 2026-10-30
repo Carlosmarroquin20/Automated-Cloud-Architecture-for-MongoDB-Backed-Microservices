@@ -1,0 +1,41 @@
+# Without a liveness probe a hung process keeps its pod forever; without a
+# readiness probe a pod is considered available as soon as it starts, so a
+# rollout can replace working pods with broken ones. Init containers run to
+# completion and are not probed.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-probes
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  variables:
+    - name: unprobed
+      expression: >-
+        object.spec.template.spec.containers.filter(c,
+          !(has(c.livenessProbe) && has(c.readinessProbe)))
+  validations:
+    - expression: "size(variables.unprobed) == 0"
+      messageExpression: >-
+        'containers must define liveness and readiness probes: '
+        + variables.unprobed.map(c, c.name).join(', ')
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: require-probes
+spec:
+  policyName: require-probes
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["microservice", "monitoring"]

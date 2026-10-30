@@ -1,0 +1,13 @@
+# Admission policies for the project's namespaces, enforced by the API server
+# itself (ValidatingAdmissionPolicy, GA since Kubernetes 1.30): no policy
+# controller runs in the cluster. Apply before the workloads, so every workload
+# is admitted against them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - require-read-only-root-filesystem.yaml
+  - require-resources.yaml
+  - require-image-digest.yaml
+  - require-probes.yaml
+  - restrict-service-account-token.yaml

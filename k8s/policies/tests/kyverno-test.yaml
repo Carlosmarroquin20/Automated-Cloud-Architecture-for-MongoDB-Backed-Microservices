@@ -1,0 +1,90 @@
+# Policy unit tests, run offline with the Kyverno CLI: `kyverno test k8s/policies/tests`.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: workload-policies
+policies:
+  - ../require-read-only-root-filesystem.yaml
+  - ../require-resources.yaml
+  - ../require-image-digest.yaml
+  - ../require-probes.yaml
+  - ../restrict-service-account-token.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  - policy: require-read-only-root-filesystem
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [compliant, own-image, dedicated-account]
+    result: pass
+  - policy: require-read-only-root-filesystem
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [writable-init-container]
+    result: fail
+  - policy: require-resources
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [compliant, own-image, dedicated-account]
+    result: pass
+  - policy: require-resources
+    isValidatingAdmissionPolicy: true
+    kind: StatefulSet
+    resources: [no-memory-limit]
+    result: fail
+  - policy: require-image-digest
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [compliant, own-image, dedicated-account]
+    result: pass
+  - policy: require-image-digest
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [tag-only-image]
+    result: fail
+  - policy: require-probes
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [compliant, own-image, dedicated-account]
+    result: pass
+  - policy: require-probes
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [no-readiness-probe]
+    result: fail
+  - policy: restrict-service-account-token
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [compliant, own-image, dedicated-account]
+    result: pass
+  - policy: restrict-service-account-token
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [default-token-mounted]
+    result: fail
+  - policy: require-read-only-root-filesystem
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [out-of-scope]
+    result: skip
+  - policy: require-resources
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [out-of-scope]
+    result: skip
+  - policy: require-image-digest
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [out-of-scope]
+    result: skip
+  - policy: require-probes
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [out-of-scope]
+    result: skip
+  - policy: restrict-service-account-token
+    isValidatingAdmissionPolicy: true
+    kind: Deployment
+    resources: [out-of-scope]
+    result: skip

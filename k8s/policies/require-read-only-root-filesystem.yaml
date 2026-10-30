@@ -1,0 +1,54 @@
+# A writable root filesystem lets a compromised process alter binaries and
+# configuration in place. Every container mounts writable paths explicitly
+# (emptyDir or a volume) and keeps the image itself read-only. Pod Security
+# Admission does not check this, so it is enforced here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-read-only-root-filesystem
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: pod
+      expression: "object.spec.template.spec"
+    - name: containers
+      expression: >-
+        variables.pod.containers
+        + (has(variables.pod.initContainers) ? variables.pod.initContainers : [])
+    - name: writable
+      expression: >-
+        variables.containers.filter(c, !(has(c.securityContext)
+          && has(c.securityContext.readOnlyRootFilesystem)
+          && c.securityContext.readOnlyRootFilesystem))
+  validations:
+    - expression: "size(variables.writable) == 0"
+      messageExpression: >-
+        'containers must set securityContext.readOnlyRootFilesystem to true: '
+        + variables.writable.map(c, c.name).join(', ')
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: require-read-only-root-filesystem
+spec:
+  policyName: require-read-only-root-filesystem
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        # The immutable name label scopes the policy to this project's
+        # namespaces and cannot be removed by editing the namespace.
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["microservice", "monitoring"]

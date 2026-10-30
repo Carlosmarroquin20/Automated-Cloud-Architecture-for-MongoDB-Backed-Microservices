@@ -1,0 +1,55 @@
+# Requests let the scheduler place pods on nodes that can hold them and give the
+# HorizontalPodAutoscaler a baseline; a memory limit bounds the damage of a leak
+# to the container that has it. CPU limits are not required: throttling a
+# container that has spare node capacity only adds latency.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-resources
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: pod
+      expression: "object.spec.template.spec"
+    - name: containers
+      expression: >-
+        variables.pod.containers
+        + (has(variables.pod.initContainers) ? variables.pod.initContainers : [])
+    - name: unbounded
+      expression: >-
+        variables.containers.filter(c, !(has(c.resources)
+          && has(c.resources.requests)
+          && 'cpu' in c.resources.requests
+          && 'memory' in c.resources.requests
+          && has(c.resources.limits)
+          && 'memory' in c.resources.limits))
+  validations:
+    - expression: "size(variables.unbounded) == 0"
+      messageExpression: >-
+        'containers must request cpu and memory and limit memory: '
+        + variables.unbounded.map(c, c.name).join(', ')
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: require-resources
+spec:
+  policyName: require-resources
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["microservice", "monitoring"]

@@ -1,0 +1,53 @@
+# A tag can be moved to different content after review; a digest cannot, so a
+# third-party image runs exactly the bytes that were scanned and approved. The
+# project's own images are exempt: they are built from the same commit inside the
+# pipeline that deploys them, and releases publish them with signed provenance
+# for promotion by digest.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-image-digest
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  variables:
+    - name: pod
+      expression: "object.spec.template.spec"
+    - name: containers
+      expression: >-
+        variables.pod.containers
+        + (has(variables.pod.initContainers) ? variables.pod.initContainers : [])
+    - name: unpinned
+      expression: >-
+        variables.containers.filter(c, !c.image.contains('@sha256:')
+          && !c.image.startsWith('mongodb-microservice-')
+          && !c.image.startsWith('ghcr.io/carlosmarroquin20/mongodb-microservice-'))
+  validations:
+    - expression: "size(variables.unpinned) == 0"
+      messageExpression: >-
+        'third-party images must be pinned by digest: '
+        + variables.unpinned.map(c, c.name + ' (' + c.image + ')').join(', ')
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: require-image-digest
+spec:
+  policyName: require-image-digest
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["microservice", "monitoring"]

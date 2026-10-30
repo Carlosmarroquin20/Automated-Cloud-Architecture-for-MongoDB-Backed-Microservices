@@ -1,0 +1,252 @@
+# Fixtures for the policy tests. `compliant` satisfies every policy; each other
+# workload breaks exactly one rule, so a policy that stops detecting its case,
+# or starts rejecting a compliant workload, fails the test.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliant
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: compliant
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: migrate
+          image: registry.example/migrate@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 32Mi}
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+# The project's own images are built and deployed by the same pipeline and are
+# exempt from digest pinning.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: own-image
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: own-image
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: mongodb-microservice-backend:latest
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+# A dedicated service account may mount its token: access is then governed by
+# that account's RBAC.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dedicated-account
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels: &labels
+      app: dedicated-account
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writable-init-container
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: writable-init-container
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: migrate
+          image: registry.example/migrate@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 32Mi}
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: no-memory-limit
+  namespace: microservice
+spec:
+  serviceName: no-memory-limit
+  selector:
+    matchLabels: &labels
+      app: no-memory-limit
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tag-only-image
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: tag-only-image
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: registry.example/app:1.0
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-readiness-probe
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: no-readiness-probe
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: default-token-mounted
+  namespace: microservice
+spec:
+  selector:
+    matchLabels: &labels
+      app: default-token-mounted
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      containers:
+        - name: app
+          image: registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext:
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8000}
+---
+# Outside the project's namespaces the policies do not apply, so cluster
+# components the project does not own are never blocked by them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: out-of-scope
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels: &labels
+      app: out-of-scope
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      containers:
+        - name: app
+          image: registry.example/app:1.0

@@ -41,6 +41,7 @@ looks the way it does, not merely *what* it contains.
 | 0029 | Dead letters captured by the broker | Accepted |
 | 0030 | Service level objectives and burn-rate alerting | Accepted |
 | 0031 | Bounded writes during a database outage | Accepted |
+| 0032 | Admission policies enforced by the API server | Accepted |
 
 ---
 
@@ -656,5 +657,44 @@ most 10.5 seconds and 881 reads within 6.1 seconds, all counted by the
 availability indicator. A client learns of the failure while it can still act on
 it. A commit whose acknowledgement is lost when the deadline expires can still
 leave its outcome unknown; idempotency keys on creation would close that case.
+
+**Status.** Accepted (2026-10-30).
+
+## ADR-0032 — Admission policies enforced by the API server
+
+**Context.** The workloads were hardened by convention: non-root users,
+read-only root filesystems, dropped capabilities, resource bounds, probes, and
+digest-pinned third-party images. Nothing enforced it, and an audit of the
+rendered overlays against those rules found fourteen violations: the dev
+MongoDB ran as root with a writable filesystem, a tag-only image, and no
+liveness probe; Prometheus and Grafana used tag-only images; the outbox relay
+had no readiness probe; and every workload mounted the default service
+account's token although only Prometheus calls the Kubernetes API.
+
+**Decision.** Enforce the rules at admission with native mechanisms only. The
+`microservice` and `monitoring` namespaces carry Pod Security Admission labels
+for the `restricted` profile. Five ValidatingAdmissionPolicies, written in CEL,
+cover what the profile does not: read-only root filesystems, resource requests
+and a memory limit, digest-pinned third-party images, liveness and readiness
+probes, and no default service account token. Their bindings select the two
+namespaces by the immutable name label. Kyverno and OPA Gatekeeper were
+considered; both run a controller in the cluster, which costs memory on a
+free-tier node and adds a component that must be available for admission to
+succeed, while the API server has evaluated these policies natively since
+Kubernetes 1.30. The Kyverno CLI is still used, offline, to unit-test the
+policies, because it evaluates the same CEL without a cluster.
+
+**Consequences.** The violations were fixed rather than exempted: MongoDB runs
+as its image's unprivileged user with a read-only root filesystem, no
+capabilities, and a liveness probe, verified first in a container with the same
+restrictions; the monitoring images are pinned by digest; the relay's readiness
+follows its heartbeat; and no workload mounts a token it does not use. CI runs
+25 policy test cases, evaluates every workload the overlays deploy, and in the
+ephemeral cluster submits the same fixtures to the API server and a pod running
+as root, asserting each is admitted or refused for the expected reason. The
+project's own images are exempt from digest pinning, because the pipeline that
+deploys them builds them from the same commit; a production overlay would
+promote them by digest. Policies apply only to the project's namespaces, so
+cluster components are unaffected.
 
 **Status.** Accepted (2026-10-30).

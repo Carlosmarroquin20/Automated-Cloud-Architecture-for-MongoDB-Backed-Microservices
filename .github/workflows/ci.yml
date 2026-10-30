@@ -190,6 +190,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       KUBECONFORM_VERSION: "0.6.7"
+      KYVERNO_CLI_IMAGE: ghcr.io/kyverno/kyverno-cli:v1.19.1@sha256:ced7b2be0b04250cabfe695f15307f69eb715fe23234816388af4f3812915b2a
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -217,6 +218,42 @@ jobs:
         run: |
           kubectl kustomize k8s/monitoring \
             | kubeconform -strict -summary -ignore-missing-schemas -verbose
+
+      - name: Validate admission policies
+        run: |
+          kubectl kustomize k8s/policies \
+            | kubeconform -strict -summary -ignore-missing-schemas -verbose
+
+      # The policies are evaluated offline with the Kyverno CLI, which runs
+      # ValidatingAdmissionPolicy CEL the way the API server does. Their unit
+      # tests assert each rule rejects its violation, admits compliant and
+      # exempt workloads, and stays out of other namespaces.
+      - name: Unit-test admission policies
+        run: |
+          docker run --rm -v "${PWD}/k8s/policies:/policies:ro" \
+            "${KYVERNO_CLI_IMAGE}" test /policies/tests
+
+      # Every workload the overlays deploy must pass the policies before it
+      # reaches a cluster. Only workloads are evaluated: the policies match
+      # nothing else, and cluster-scoped objects cannot satisfy a namespace
+      # selector offline.
+      - name: Evaluate overlays against admission policies
+        run: |
+          mkdir -p rendered
+          for overlay in k8s/overlays/dev k8s/monitoring; do
+            kubectl kustomize "${overlay}"
+            echo "---"
+          done | yq 'select(.kind == "Deployment" or .kind == "StatefulSet"
+                     or .kind == "DaemonSet" or .kind == "Job")' > rendered/workloads.yaml
+          docker run --rm -v "${PWD}/k8s/policies:/policies:ro" -v "${PWD}/rendered:/rendered:ro" \
+            "${KYVERNO_CLI_IMAGE}" apply \
+              /policies/require-read-only-root-filesystem.yaml \
+              /policies/require-resources.yaml \
+              /policies/require-image-digest.yaml \
+              /policies/require-probes.yaml \
+              /policies/restrict-service-account-token.yaml \
+              --resource /rendered/workloads.yaml \
+              --values-file /policies/tests/values.yaml
 
       # promtool ships in the Prometheus image that Compose runs, so rules and
       # configuration are checked by the version that evaluates them. Each
@@ -467,12 +504,30 @@ jobs:
           kind load docker-image mongodb-microservice-frontend:latest --name "$CLUSTER"
           kind load docker-image mongodb-microservice-audit:latest --name "$CLUSTER"
 
+      # The API server enforces the policies itself; it compiles a policy
+      # asynchronously after it is created, so enforcement is awaited by
+      # submitting a known violation until it is rejected.
+      - name: Install admission policies
+        run: |
+          kubectl apply -k k8s/policies
+          kubectl create namespace "$NAMESPACE"
+          for _ in $(seq 1 30); do
+            if ! kubectl -n "$NAMESPACE" create deployment policy-probe \
+                --image=registry.example/app:1.0 --dry-run=server -o name >/dev/null 2>&1; then
+              echo "admission policies are enforced"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the admission policies were not enforced within 60 seconds"
+          exit 1
+
       - name: Validate with server-side dry run
         run: |
           # A server-side dry run does not persist the Namespace object, so it is
-          # created first; the overlay is then checked by the API server's
-          # admission chain before anything is scheduled.
-          kubectl create namespace "$NAMESPACE"
+          # created in the previous step; the overlay is then checked by the API
+          # server's admission chain, including the admission policies, before
+          # anything is scheduled.
           kubectl apply -k k8s/overlays/dev --dry-run=server
 
       - name: Apply the dev overlay
@@ -487,6 +542,44 @@ jobs:
           kubectl -n "$NAMESPACE" rollout status deployment/outbox-relay --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/audit --timeout=240s
           kubectl -n "$NAMESPACE" rollout status deployment/jaeger --timeout=240s
+
+      # The deployed namespace now carries its Pod Security labels, so a pod
+      # running as root must be refused by Pod Security Admission. The policy
+      # fixtures the offline tests use are then submitted to the API server:
+      # the compliant ones must be admitted and each violation refused by its
+      # own policy, so the cluster and the offline evaluation agree.
+      - name: Reject non-compliant workloads at admission
+        run: |
+          if out="$(kubectl -n "$NAMESPACE" run root-probe \
+              --image=registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+              --overrides='{"spec":{"securityContext":{"runAsUser":0}}}' --dry-run=server -o name 2>&1)"; then
+            echo "::error::Pod Security Admission admitted a pod running as root"; exit 1
+          fi
+          echo "${out}" | grep -q 'violates PodSecurity "restricted' \
+            || { echo "::error::unexpected refusal: ${out}"; exit 1; }
+          echo "pod running as root: refused by Pod Security Admission"
+
+          fixture() { yq "select(.metadata.name == \"$1\")" k8s/policies/tests/resources.yaml; }
+          # out-of-scope sits in kube-system, where the policies do not apply.
+          for name in compliant own-image out-of-scope; do
+            fixture "${name}" | kubectl apply --dry-run=server -f - >/dev/null \
+              || { echo "::error::compliant fixture ${name} was refused"; exit 1; }
+            echo "${name}: admitted"
+          done
+          while read -r name policy; do
+            if out="$(fixture "${name}" | kubectl apply --dry-run=server -f - 2>&1)"; then
+              echo "::error::${name} was admitted"; exit 1
+            fi
+            echo "${out}" | grep -q "${policy}" \
+              || { echo "::error::${name} was refused for another reason: ${out}"; exit 1; }
+            echo "${name}: refused by ${policy}"
+          done <<'EOF'
+          writable-init-container require-read-only-root-filesystem
+          no-memory-limit require-resources
+          tag-only-image require-image-digest
+          no-readiness-probe require-probes
+          default-token-mounted restrict-service-account-token
+          EOF
 
       - name: Smoke test through the frontend
         run: |
@@ -796,7 +889,8 @@ jobs:
             echo "event delivery to the audit service, a trace spanning all three services, a"
             echo "broker outage survived without losing or duplicating an event, and an event the"
             echo "audit database refused captured as a dead letter and replayed into the history,"
-            echo "and writes refused with 503 within seconds while the database was down."
+            echo "writes refused with 503 within seconds while the database was down, and"
+            echo "non-compliant workloads refused by Pod Security Admission and admission policies."
             echo
             echo '```'
             kubectl -n "$NAMESPACE" get pods -o wide 2>/dev/null || echo "cluster unavailable"

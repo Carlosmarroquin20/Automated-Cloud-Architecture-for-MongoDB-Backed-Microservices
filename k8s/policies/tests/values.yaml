@@ -1,0 +1,16 @@
+# The API server labels every namespace with its name; offline evaluation has no
+# API server, so the label the bindings select on is supplied here.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Value
+metadata:
+  name: namespaces
+namespaceSelector:
+  - name: microservice
+    labels:
+      kubernetes.io/metadata.name: microservice
+  - name: monitoring
+    labels:
+      kubernetes.io/metadata.name: monitoring
+  - name: kube-system
+    labels:
+      kubernetes.io/metadata.name: kube-system
