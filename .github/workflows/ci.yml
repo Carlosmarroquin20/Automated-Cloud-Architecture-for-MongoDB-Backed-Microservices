@@ -903,7 +903,9 @@ jobs:
           # Readiness now withdraws every backend pod, so the proxy answers alone.
           # The backend's own counters must stop moving while the probes keep
           # failing: the blind spot of a service-side indicator, seen from outside.
+          # A client must still get a prompt answer it can act on, not a hang.
           kubectl -n monitoring port-forward svc/prometheus 39091:9090 >> database-outage-port-forward.log 2>&1 &
+          kubectl -n "$NAMESPACE" port-forward svc/frontend 38080:80 >> database-outage-port-forward.log 2>&1 &
           sleep 3
           prom() {
             curl -fsS http://localhost:39091/api/v1/query --data-urlencode "query=$1" \
@@ -915,7 +917,7 @@ jobs:
             ready="$(kubectl -n "$NAMESPACE" get deployment backend -o jsonpath='{.status.readyReplicas}')"
             status="$(prom 'probe_http_status_code{job="edge-probe",probe="items-api"}')"
             echo "ready backend pods: ${ready:-0}, items API probe status: ${status}"
-            if [ -z "${ready}" ] && [ "${status}" != "200" ] && [ "${status}" != "503" ] && [ "${status}" != "none" ]; then
+            if [ -z "${ready}" ] && [ "${status}" = "502" ]; then
               withdrawn="yes"
               break
             fi
@@ -933,6 +935,18 @@ jobs:
             || { echo "::error::the backend still counted errors while it was withdrawn"; exit 1; }
           [ "${failed}" = "0" ] \
             || { echo "::error::a probe succeeded while no backend pod was ready"; exit 1; }
+
+          curl -sS -o response.json -D headers.txt -w '%{http_code} %{time_total}\n' --max-time 60 \
+            -X POST http://localhost:38080/api/v1/items -H 'Content-Type: application/json' \
+            -d '{"name":"no-backend-pod","quantity":1}' | tee result.txt
+          read -r code seconds < result.txt
+          cat response.json; echo
+          [ "${code}" = "502" ] || { echo "::error::the proxy answered HTTP ${code} with no backend pod ready"; exit 1; }
+          awk -v s="${seconds}" 'BEGIN { exit !(s < 5) }' \
+            || { echo "::error::the proxy took ${seconds}s to answer"; exit 1; }
+          grep -qi '^retry-after: 5' headers.txt || { echo "::error::Retry-After is missing from the proxy's answer"; exit 1; }
+          jq -e '.error.code == "upstream_unavailable"' response.json >/dev/null \
+            || { echo "::error::the proxy's answer lacks the error envelope"; exit 1; }
 
           kubectl -n "$NAMESPACE" scale statefulset/mongo --replicas=1
           kubectl -n "$NAMESPACE" rollout status statefulset/mongo --timeout=240s

@@ -2,8 +2,7 @@
 #
 # Service metrics only count requests that reach the service. A probe sends a
 # request where a client does, so it also sees what the proxy answers by itself:
-# a 502 while no backend pod is ready, or a 504 from a backend that stopped
-# responding.
+# a 502 while no backend pod is ready or a backend has stopped responding.
 modules:
   http_2xx:
     prober: http
